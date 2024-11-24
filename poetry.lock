@@ -140,6 +140,25 @@ files = [
 all = ["flake8 (>=7.1.1)", "mypy (>=1.11.2)", "pytest (>=8.3.2)", "ruff (>=0.6.2)"]
 
 [[package]]
+name = "ngrok"
+version = "1.4.0"
+description = "The ngrok Agent SDK for Python"
+optional = false
+python-versions = ">=3.7"
+files = [
+    {file = "ngrok-1.4.0-cp37-abi3-macosx_10_12_x86_64.macosx_11_0_arm64.macosx_10_12_universal2.whl", hash = "sha256:05a86cf684120c27d1f10c9a3a5320c7243a89a9f93e58c027dc3916bdeeade9"},
+    {file = "ngrok-1.4.0-cp37-abi3-macosx_10_12_x86_64.whl", hash = "sha256:166aa4ad1911564e8028436b4c0cc5401f846f79176c97bc84726d417f5483eb"},
+    {file = "ngrok-1.4.0-cp37-abi3-macosx_11_0_arm64.whl", hash = "sha256:2a9bd2fbf3bf2ed8bdc668d20da9f961207ffe8795320598ca2747463c5f980d"},
+    {file = "ngrok-1.4.0-cp37-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:60a6fdaa08c7bcff6b208fb2d1d7d3065ab7bf99a1dfc6e9c4f4535dbbe2e0f6"},
+    {file = "ngrok-1.4.0-cp37-abi3-manylinux_2_17_armv7l.manylinux2014_armv7l.whl", hash = "sha256:381a455b527a4c25e9aa5da231db2f836c243ae46b479f9a4af2b54fadfde906"},
+    {file = "ngrok-1.4.0-cp37-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:8660b535a3b1593c80868c80dd2f7b480fcb075ec807ba727868348d037adea3"},
+    {file = "ngrok-1.4.0-cp37-abi3-musllinux_1_2_aarch64.whl", hash = "sha256:0f31c5f7a3d93011a08d01ccd38c66b1febec3efe776b301ea677061d56561b1"},
+    {file = "ngrok-1.4.0-cp37-abi3-musllinux_1_2_x86_64.whl", hash = "sha256:77aeac9d9e1a425c65fad10c7996279ba4099c68af6e18d66d0e9d96f2eef31b"},
+    {file = "ngrok-1.4.0-cp37-abi3-win32.whl", hash = "sha256:0b2a29f4a98ce62366262fc4906dfb0dfe28a9ec7114dc9e7cbe2d75f923fc00"},
+    {file = "ngrok-1.4.0-cp37-abi3-win_amd64.whl", hash = "sha256:1ff615ab7709976664730b80e4345d4bf7816b864f990bdf2b6529c7e7f9106d"},
+]
+
+[[package]]
 name = "passlib"
 version = "1.7.4"
 description = "comprehensive password hashing framework supporting over 30 schemes"
@@ -348,4 +367,4 @@ standard = ["colorama (>=0.4)", "httptools (>=0.6.3)", "python-dotenv (>=0.13)",
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.13"
-content-hash = "cbb28c79e924f71b83cf8a948d92d9831fbe365ba8c95fe7fe7ac7cd67c06a52"
+content-hash = "4920abc23da1a9c24d94d8300b25a47d31dcee8578e18144b0bc3bd10b8a11a5"
