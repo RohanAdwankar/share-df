@@ -168,6 +168,26 @@ class ShareServer:
                             box-sizing: border-box !important;
                         }
 
+                        .tabulator-row-handle {
+                            display: inline-block;
+                            vertical-align: middle;
+                            white-space: nowrap;
+                            cursor: move;
+                            width: 30px;
+                            max-width: 30px;
+                            height: 100%;
+                            text-align: center;
+                            background: #f8fafc;
+                            border-right: 1px solid #e2e8f0;
+                        }
+
+                        .tabulator-row-handle::before {
+                            content: "≡";
+                            font-size: 20px;
+                            color: #64748b;
+                            line-height: 40px;
+                        }
+
                         .toast {
                             position: fixed;
                             top: 1rem;
@@ -302,9 +322,7 @@ class ShareServer:
                         function addNewColumn() {
                             columnCount++;
                             const newColumnName = `New Column ${columnCount}`;
-                            const currentData = table.getData();
                             
-                            // Add new column definition
                             table.addColumn({
                                 title: newColumnName,
                                 field: newColumnName,
@@ -312,13 +330,7 @@ class ShareServer:
                                 headerClick: function(e, column) {
                                     editColumnHeader(e, column);
                                 }
-                            });
-
-                            // Initialize new column with empty values
-                            currentData.forEach(row => {
-                                row[newColumnName] = '';
-                            });
-                            table.setData(currentData);
+                            }, false);  // false means add to end of table
                         }
 
                         function addNewRow() {
@@ -331,6 +343,9 @@ class ShareServer:
                         }
 
                         function editColumnHeader(e, column) {
+                            // Prevent header click from triggering sort
+                            e.stopPropagation();
+
                             const currentTitle = column.getDefinition().title;
                             const oldField = column.getField();
                             
@@ -348,39 +363,104 @@ class ShareServer:
                             titleElement.appendChild(input);
                             input.focus();
                             
+                            const finishEdit = function(newValue) {
+                                if (newValue && newValue !== oldField) {
+                                    const allData = table.getData();
+                                    const columnDefinitions = table.getColumnDefinitions();
+                                    
+                                    const newColumnDefinitions = columnDefinitions.map(def => {
+                                        if (def.field === oldField) {
+                                            return {
+                                                ...def,
+                                                title: newValue,
+                                                field: newValue
+                                            };
+                                        }
+                                        return def;
+                                    });
+
+                                    // Update data with new field name
+                                    const updatedData = allData.map(row => {
+                                        const newRow = {...row};
+                                        newRow[newValue] = row[oldField];
+                                        delete newRow[oldField];
+                                        return newRow;
+                                    });
+
+                                    // Rebuild table with new columns and data
+                                    table.setColumns(newColumnDefinitions);
+                                    table.setData(updatedData);
+                                } else {
+                                    // If no change, just restore the original title
+                                    titleElement.innerHTML = currentTitle;
+                                }
+                            };
+                            
                             input.addEventListener("blur", function() {
-                                renameColumn(column, oldField, this.value);
+                                finishEdit(this.value);
                             });
                             
                             input.addEventListener("keydown", function(e) {
                                 if (e.key === "Enter") {
-                                    renameColumn(column, oldField, this.value);
+                                    finishEdit(this.value);
+                                    this.blur();
+                                }
+                                if (e.key === "Escape") {
+                                    titleElement.innerHTML = currentTitle;
                                     this.blur();
                                 }
                             });
                         }
 
-                        function renameColumn(column, oldField, newTitle) {
-                            const currentData = table.getData();
-                            
-                            // Update data with new field name
-                            currentData.forEach(row => {
-                                row[newTitle] = row[oldField];
-                                delete row[oldField];
-                            });
-
-                            // Update column definition
-                            column.updateDefinition({
-                                title: newTitle,
-                                field: newTitle,
-                                editor: true,
-                                headerClick: function(e, column) {
-                                    editColumnHeader(e, column);
+                        async function initializeTable() {
+                            try {
+                                const data = await loadData();
+                                if (!data || data.length === 0) {
+                                    console.error('No data received');
+                                    showToast('No data available', 'error');
+                                    return;
                                 }
-                            });
 
-                            // Update table data
-                            table.setData(currentData);
+                                const columns = [
+                                    {
+                                        formatter: "handle",
+                                        headerSort: false,
+                                        frozen: true,
+                                        width: 30,
+                                        minWidth: 30,
+                                        cssClass: "tabulator-row-handle",
+                                    },
+                                    ...Object.keys(data[0]).map(key => ({
+                                        title: key,
+                                        field: key,
+                                        editor: true,
+                                        headerClick: function(e, column) {
+                                            editColumnHeader(e, column);
+                                        }
+                                    }))
+                                ];
+
+                                table = new Tabulator("#data-table", {
+                                    data: data,
+                                    columns: columns,
+                                    layout: "fitColumns",
+                                    movableColumns: true,
+                                    movableRows: true,
+                                    history: true,
+                                    clipboard: true,
+                                    height: "100%",
+                                    keybindings: {
+                                        "copyToClipboard": "ctrl+67",
+                                        "pasteFromClipboard": "ctrl+86",
+                                        "undo": "ctrl+90",
+                                        "redo": "ctrl+89"
+                                    }
+                                });
+
+                            } catch (e) {
+                                console.error('Error initializing table:', e);
+                                showToast('Error initializing table', 'error');
+                            }
                         }
 
                         async function shutdownServer() {
