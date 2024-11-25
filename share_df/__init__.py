@@ -49,11 +49,12 @@ class ShareServer:
                             height: 100vh;
                             display: flex;
                             flex-direction: column;
+                            overflow: hidden;
                         }
 
                         .header {
                             background: #3b82f6;
-                            padding: 1rem 2rem;
+                            padding: 0.75rem 1.5rem;
                             display: flex;
                             justify-content: space-between;
                             align-items: center;
@@ -102,21 +103,25 @@ class ShareServer:
                         }
 
                         .grid-container {
-                            flex: 1;
                             padding: 1rem;
-                            height: calc(100vh - 64px);
-                            background: white;
-                            margin: 1rem;
-                            border-radius: 8px;
-                            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+                            flex: 1;
+                            min-height: 0;
+                            display: flex;
+                            flex-direction: column;
                         }
 
-                        /* Tabulator Customization */
+                        #data-table {
+                            flex: 1;
+                            background: white;
+                            border-radius: 8px;
+                            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+                            overflow: hidden;
+                        }
+
                         .tabulator {
                             border: 1px solid #e2e8f0;
                             border-radius: 8px;
-                            overflow: hidden;
-                            font-family: inherit;
+                            max-height: 100%;
                         }
 
                         .tabulator .tabulator-header {
@@ -131,8 +136,7 @@ class ShareServer:
                         }
 
                         .tabulator .tabulator-header .tabulator-col-content {
-                            font-weight: 600;
-                            color: #1e293b;
+                            padding: 0;
                         }
 
                         .tabulator .tabulator-row {
@@ -153,8 +157,15 @@ class ShareServer:
                         }
 
                         .tabulator-editing {
-                            background-color: #fff !important;
+                            padding: 0 !important;
+                        }
+
+                        .tabulator-editing input {
                             border: 2px solid #3b82f6 !important;
+                            padding: 6px !important;
+                            width: 100% !important;
+                            height: 100% !important;
+                            box-sizing: border-box !important;
                         }
 
                         .toast {
@@ -213,16 +224,14 @@ class ShareServer:
 
                     <script>
                         let table;
+                        let currentHeaders = [];
 
                         function showToast(message, type = 'success') {
                             const toast = document.createElement('div');
                             toast.className = `toast ${type}`;
                             toast.textContent = message;
                             document.body.appendChild(toast);
-                            
-                            setTimeout(() => {
-                                toast.remove();
-                            }, 2300);
+                            setTimeout(() => toast.remove(), 2300);
                         }
 
                         async function shutdownServer() {
@@ -252,18 +261,37 @@ class ShareServer:
                         async function saveData() {
                             try {
                                 const data = table.getData();
+                                // Update column names if they've changed
+                                const currentCols = table.getColumns();
+                                const updatedData = data.map(row => {
+                                    const newRow = {};
+                                    currentCols.forEach((col, index) => {
+                                        const oldField = currentHeaders[index];
+                                        const newField = col.getField();
+                                        newRow[newField] = row[oldField];
+                                    });
+                                    return newRow;
+                                });
+
                                 await fetch('/update_data', {
                                     method: 'POST',
                                     headers: {
                                         'Content-Type': 'application/json',
                                     },
-                                    body: JSON.stringify({data: data}),
+                                    body: JSON.stringify({data: updatedData}),
                                 });
                                 showToast('Changes saved successfully!');
+                                
+                                // Update stored headers
+                                currentHeaders = currentCols.map(col => col.getField());
                             } catch (e) {
                                 console.error('Error saving data:', e);
                                 showToast('Error saving data', 'error');
                             }
+                        }
+
+                        function updateColumnTitle(column, title) {
+                            column.updateDefinition({ title: title, field: title });
                         }
                         
                         async function initializeTable() {
@@ -275,23 +303,50 @@ class ShareServer:
                                     return;
                                 }
 
-                                const columns = Object.keys(data[0]).map(key => ({
-                                    title: key.charAt(0).toUpperCase() + key.slice(1),
+                                // Store initial headers
+                                currentHeaders = Object.keys(data[0]);
+
+                                const columns = currentHeaders.map(key => ({
+                                    title: key,
                                     field: key,
-                                    editor: "input",
-                                    headerSort: true,
-                                    resizable: true
+                                    editor: true,
+                                    headerClick: function(e, column) {
+                                        const currentTitle = column.getDefinition().title;
+                                        const input = document.createElement("input");
+                                        input.value = currentTitle;
+                                        input.style.width = "100%";
+                                        input.style.boxSizing = "border-box";
+                                        input.style.padding = "5px";
+                                        input.style.border = "2px solid #3b82f6";
+                                        input.style.borderRadius = "4px";
+                                        
+                                        const headerElement = e.target.closest(".tabulator-col");
+                                        const titleElement = headerElement.querySelector(".tabulator-col-title");
+                                        titleElement.innerHTML = "";
+                                        titleElement.appendChild(input);
+                                        input.focus();
+                                        
+                                        input.addEventListener("blur", function() {
+                                            updateColumnTitle(column, this.value);
+                                        });
+                                        
+                                        input.addEventListener("keydown", function(e) {
+                                            if (e.key === "Enter") {
+                                                updateColumnTitle(column, this.value);
+                                                this.blur();
+                                            }
+                                        });
+                                    }
                                 }));
 
                                 table = new Tabulator("#data-table", {
                                     data: data,
                                     columns: columns,
-                                    layout: "fitDataFill",
-                                    height: "100%",
+                                    layout: "fitColumns",
                                     movableColumns: true,
-                                    selectable: true,
                                     history: true,
                                     clipboard: true,
+                                    height: "100%",
                                     keybindings: {
                                         "copyToClipboard": "ctrl+67",
                                         "pasteFromClipboard": "ctrl+86",
@@ -299,6 +354,7 @@ class ShareServer:
                                         "redo": "ctrl+89"
                                     }
                                 });
+
                             } catch (e) {
                                 console.error('Error initializing table:', e);
                                 showToast('Error initializing table', 'error');
