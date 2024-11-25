@@ -466,6 +466,7 @@ class ShareServer:
                         async function shutdownServer() {
                             if (confirm('Are you sure you want to shutdown the server?')) {
                                 try {
+                                    saveData();
                                     await fetch('/shutdown', {method: 'POST'});
                                     showToast('Server shutting down...', 'success');
                                 } catch (e) {
