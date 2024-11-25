@@ -32,106 +32,282 @@ class ShareServer:
             return """
                 <!DOCTYPE html>
                 <html>
-                    <head>
-                        <title>DataFrame Editor</title>
-                        <script src="https://cdnjs.cloudflare.com/ajax/libs/ag-grid/30.2.1/ag-grid-community.min.noStyle.js"></script>
-                        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/ag-grid/30.2.1/styles/ag-grid.min.css">
-                        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/ag-grid/30.2.1/styles/ag-theme-alpine.min.css">
-                        <style>
-                            .ag-theme-alpine {
-                                height: 500px;
-                                width: 100%;
-                            }
-                        </style>
-                    </head>
-                    <body>
-                        <h2>DataFrame Editor</h2>
-                        <div id="myGrid" class="ag-theme-alpine"></div>
-                        <div style="margin-top: 20px;">
-                            <button onclick="saveData()">Save Changes</button>
-                            <button onclick="shutdownServer()">Shutdown Server</button>
+                <head>
+                    <title>DataFrame Editor</title>
+                    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabulator/5.4.4/css/tabulator.min.css">
+                    <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/tabulator/5.4.4/js/tabulator.min.js"></script>
+                    <style>
+                        * {
+                            margin: 0;
+                            padding: 0;
+                            box-sizing: border-box;
+                        }
+
+                        body {
+                            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+                            background: #f1f5f9;
+                            height: 100vh;
+                            display: flex;
+                            flex-direction: column;
+                        }
+
+                        .header {
+                            background: #3b82f6;
+                            padding: 1rem 2rem;
+                            display: flex;
+                            justify-content: space-between;
+                            align-items: center;
+                            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+                        }
+
+                        .title {
+                            color: white;
+                            font-size: 1.5rem;
+                            font-weight: 600;
+                        }
+
+                        .button-container {
+                            display: flex;
+                            gap: 1rem;
+                        }
+
+                        .button {
+                            padding: 0.5rem 1rem;
+                            border: none;
+                            border-radius: 6px;
+                            font-weight: 500;
+                            cursor: pointer;
+                            transition: all 0.2s ease;
+                            display: flex;
+                            align-items: center;
+                            gap: 0.5rem;
+                            color: white;
+                            font-size: 0.9rem;
+                        }
+
+                        .save-button {
+                            background: #22c55e;
+                        }
+
+                        .save-button:hover {
+                            background: #16a34a;
+                        }
+
+                        .shutdown-button {
+                            background: #ef4444;
+                        }
+
+                        .shutdown-button:hover {
+                            background: #dc2626;
+                        }
+
+                        .grid-container {
+                            flex: 1;
+                            padding: 1rem;
+                            height: calc(100vh - 64px);
+                            background: white;
+                            margin: 1rem;
+                            border-radius: 8px;
+                            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+                        }
+
+                        /* Tabulator Customization */
+                        .tabulator {
+                            border: 1px solid #e2e8f0;
+                            border-radius: 8px;
+                            overflow: hidden;
+                            font-family: inherit;
+                        }
+
+                        .tabulator .tabulator-header {
+                            background-color: #f8fafc;
+                            border-bottom: 2px solid #e2e8f0;
+                        }
+
+                        .tabulator .tabulator-header .tabulator-col {
+                            background-color: #f8fafc;
+                            border-right: 1px solid #e2e8f0;
+                            padding: 8px;
+                        }
+
+                        .tabulator .tabulator-header .tabulator-col-content {
+                            font-weight: 600;
+                            color: #1e293b;
+                        }
+
+                        .tabulator .tabulator-row {
+                            border-bottom: 1px solid #e2e8f0;
+                        }
+
+                        .tabulator .tabulator-row .tabulator-cell {
+                            padding: 8px;
+                            border-right: 1px solid #e2e8f0;
+                        }
+
+                        .tabulator .tabulator-row.tabulator-row-even {
+                            background-color: #f8fafc;
+                        }
+
+                        .tabulator-row.tabulator-selected {
+                            background-color: #e2e8f0 !important;
+                        }
+
+                        .tabulator-editing {
+                            background-color: #fff !important;
+                            border: 2px solid #3b82f6 !important;
+                        }
+
+                        .toast {
+                            position: fixed;
+                            top: 1rem;
+                            right: 1rem;
+                            padding: 0.75rem 1.5rem;
+                            border-radius: 6px;
+                            color: white;
+                            font-weight: 500;
+                            animation: slideInRight 0.3s ease-out, fadeOut 0.3s ease-out 2s forwards;
+                            z-index: 1000;
+                        }
+
+                        .toast.success {
+                            background: #22c55e;
+                        }
+
+                        .toast.error {
+                            background: #ef4444;
+                        }
+
+                        @keyframes slideInRight {
+                            from { transform: translateX(100%); opacity: 0; }
+                            to { transform: translateX(0); opacity: 1; }
+                        }
+
+                        @keyframes fadeOut {
+                            from { opacity: 1; }
+                            to { opacity: 0; }
+                        }
+                    </style>
+                </head>
+                <body>
+                    <div class="header">
+                        <h1 class="title">DataFrame Editor</h1>
+                        <div class="button-container">
+                            <button onclick="saveData()" class="button save-button">
+                                <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                                </svg>
+                                Save Changes
+                            </button>
+                            <button onclick="shutdownServer()" class="button shutdown-button">
+                                <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                                </svg>
+                                Shutdown Server
+                            </button>
                         </div>
+                    </div>
+                    
+                    <div class="grid-container">
+                        <div id="data-table"></div>
+                    </div>
 
-                        <script>
-                            let gridOptions;
+                    <script>
+                        let table;
 
-                            async function shutdownServer() {
+                        function showToast(message, type = 'success') {
+                            const toast = document.createElement('div');
+                            toast.className = `toast ${type}`;
+                            toast.textContent = message;
+                            document.body.appendChild(toast);
+                            
+                            setTimeout(() => {
+                                toast.remove();
+                            }, 2300);
+                        }
+
+                        async function shutdownServer() {
+                            if (confirm('Are you sure you want to shutdown the server?')) {
                                 try {
                                     await fetch('/shutdown', {method: 'POST'});
+                                    showToast('Server shutting down...', 'success');
                                 } catch (e) {
                                     console.error('Error shutting down:', e);
+                                    showToast('Error shutting down server', 'error');
                                 }
                             }
-                            
-                            async function loadData() {
-                                try {
-                                    const response = await fetch('/data');
-                                    const data = await response.json();
-                                    console.log('Loaded data:', data);
-                                    return data;
-                                } catch (e) {
-                                    console.error('Error loading data:', e);
-                                    return [];
-                                }
+                        }
+                        
+                        async function loadData() {
+                            try {
+                                const response = await fetch('/data');
+                                const data = await response.json();
+                                return data;
+                            } catch (e) {
+                                console.error('Error loading data:', e);
+                                showToast('Error loading data', 'error');
+                                return [];
                             }
-                            
-                            async function saveData() {
-                                try {
-                                    const rowData = gridOptions.api.getRowData();
-                                    await fetch('/update_data', {
-                                        method: 'POST',
-                                        headers: {
-                                            'Content-Type': 'application/json',
-                                        },
-                                        body: JSON.stringify({data: rowData}),
-                                    });
-                                    alert('Data saved successfully!');
-                                } catch (e) {
-                                    console.error('Error saving data:', e);
-                                    alert('Error saving data');
-                                }
+                        }
+                        
+                        async function saveData() {
+                            try {
+                                const data = table.getData();
+                                await fetch('/update_data', {
+                                    method: 'POST',
+                                    headers: {
+                                        'Content-Type': 'application/json',
+                                    },
+                                    body: JSON.stringify({data: data}),
+                                });
+                                showToast('Changes saved successfully!');
+                            } catch (e) {
+                                console.error('Error saving data:', e);
+                                showToast('Error saving data', 'error');
                             }
-                            
-                            async function initializeGrid() {
-                                try {
-                                    const data = await loadData();
-                                    if (!data || data.length === 0) {
-                                        console.error('No data received');
-                                        return;
+                        }
+                        
+                        async function initializeTable() {
+                            try {
+                                const data = await loadData();
+                                if (!data || data.length === 0) {
+                                    console.error('No data received');
+                                    showToast('No data available', 'error');
+                                    return;
+                                }
+
+                                const columns = Object.keys(data[0]).map(key => ({
+                                    title: key.charAt(0).toUpperCase() + key.slice(1),
+                                    field: key,
+                                    editor: "input",
+                                    headerSort: true,
+                                    resizable: true
+                                }));
+
+                                table = new Tabulator("#data-table", {
+                                    data: data,
+                                    columns: columns,
+                                    layout: "fitDataFill",
+                                    height: "100%",
+                                    movableColumns: true,
+                                    selectable: true,
+                                    history: true,
+                                    clipboard: true,
+                                    keybindings: {
+                                        "copyToClipboard": "ctrl+67",
+                                        "pasteFromClipboard": "ctrl+86",
+                                        "undo": "ctrl+90",
+                                        "redo": "ctrl+89"
                                     }
-
-                                    const columnDefs = Object.keys(data[0]).map(key => ({
-                                        field: key,
-                                        editable: true,
-                                        sortable: true,
-                                        filter: true
-                                    }));
-                                    
-                                    gridOptions = {
-                                        columnDefs: columnDefs,
-                                        rowData: data,
-                                        defaultColDef: {
-                                            flex: 1,
-                                            minWidth: 100,
-                                            editable: true,
-                                            sortable: true,
-                                            filter: true
-                                        },
-                                    };
-                                    
-                                    const gridDiv = document.querySelector('#myGrid');
-                                    new agGrid.Grid(gridDiv, gridOptions);
-                                } catch (e) {
-                                    console.error('Error initializing grid:', e);
-                                }
+                                });
+                            } catch (e) {
+                                console.error('Error initializing table:', e);
+                                showToast('Error initializing table', 'error');
                             }
+                        }
 
-                            document.addEventListener('DOMContentLoaded', () => {
-                                // ensure AG Grid is fully loaded
-                                setTimeout(initializeGrid, 100);
-                            });
-                        </script>
-                    </body>
+                        document.addEventListener('DOMContentLoaded', initializeTable);
+                    </script>
+                </body>
                 </html>
             """
             
