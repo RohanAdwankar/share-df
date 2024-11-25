@@ -197,12 +197,77 @@ class ShareServer:
                             from { opacity: 1; }
                             to { opacity: 0; }
                         }
+
+                        .button-container {
+                            display: flex;
+                            gap: 0.5rem;
+                        }
+
+                        .button-group {
+                            display: flex;
+                            gap: 0.5rem;
+                            padding-right: 1rem;
+                            border-right: 1px solid rgba(255, 255, 255, 0.2);
+                            margin-right: 1rem;
+                        }
+
+                        .button {
+                            padding: 0.5rem 1rem;
+                            border: none;
+                            border-radius: 6px;
+                            font-weight: 500;
+                            cursor: pointer;
+                            transition: all 0.2s ease;
+                            display: flex;
+                            align-items: center;
+                            gap: 0.5rem;
+                            color: white;
+                            font-size: 0.9rem;
+                        }
+
+                        .add-button {
+                            background: #6366f1;
+                        }
+
+                        .add-button:hover {
+                            background: #4f46e5;
+                        }
+
+                        .save-button {
+                            background: #22c55e;
+                        }
+
+                        .save-button:hover {
+                            background: #16a34a;
+                        }
+
+                        .shutdown-button {
+                            background: #ef4444;
+                        }
+
+                        .shutdown-button:hover {
+                            background: #dc2626;
+                        }
                     </style>
                 </head>
                 <body>
                     <div class="header">
                         <h1 class="title">DataFrame Editor</h1>
                         <div class="button-container">
+                            <div class="button-group">
+                                <button onclick="addNewColumn()" class="button add-button">
+                                    <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v12m6-6H6"></path>
+                                    </svg>
+                                    Add Column
+                                </button>
+                                <button onclick="addNewRow()" class="button add-button">
+                                    <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v12m6-6H6"></path>
+                                    </svg>
+                                    Add Row
+                                </button>
+                            </div>
                             <button onclick="saveData()" class="button save-button">
                                 <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
@@ -224,7 +289,7 @@ class ShareServer:
 
                     <script>
                         let table;
-                        let currentHeaders = [];
+                        let columnCount = 0;
 
                         function showToast(message, type = 'success') {
                             const toast = document.createElement('div');
@@ -232,6 +297,90 @@ class ShareServer:
                             toast.textContent = message;
                             document.body.appendChild(toast);
                             setTimeout(() => toast.remove(), 2300);
+                        }
+
+                        function addNewColumn() {
+                            columnCount++;
+                            const newColumnName = `New Column ${columnCount}`;
+                            const currentData = table.getData();
+                            
+                            // Add new column definition
+                            table.addColumn({
+                                title: newColumnName,
+                                field: newColumnName,
+                                editor: true,
+                                headerClick: function(e, column) {
+                                    editColumnHeader(e, column);
+                                }
+                            });
+
+                            // Initialize new column with empty values
+                            currentData.forEach(row => {
+                                row[newColumnName] = '';
+                            });
+                            table.setData(currentData);
+                        }
+
+                        function addNewRow() {
+                            const columns = table.getColumns();
+                            const newRow = {};
+                            columns.forEach(column => {
+                                newRow[column.getField()] = '';
+                            });
+                            table.addRow(newRow);
+                        }
+
+                        function editColumnHeader(e, column) {
+                            const currentTitle = column.getDefinition().title;
+                            const oldField = column.getField();
+                            
+                            const input = document.createElement("input");
+                            input.value = currentTitle;
+                            input.style.width = "100%";
+                            input.style.boxSizing = "border-box";
+                            input.style.padding = "5px";
+                            input.style.border = "2px solid #3b82f6";
+                            input.style.borderRadius = "4px";
+                            
+                            const headerElement = e.target.closest(".tabulator-col");
+                            const titleElement = headerElement.querySelector(".tabulator-col-title");
+                            titleElement.innerHTML = "";
+                            titleElement.appendChild(input);
+                            input.focus();
+                            
+                            input.addEventListener("blur", function() {
+                                renameColumn(column, oldField, this.value);
+                            });
+                            
+                            input.addEventListener("keydown", function(e) {
+                                if (e.key === "Enter") {
+                                    renameColumn(column, oldField, this.value);
+                                    this.blur();
+                                }
+                            });
+                        }
+
+                        function renameColumn(column, oldField, newTitle) {
+                            const currentData = table.getData();
+                            
+                            // Update data with new field name
+                            currentData.forEach(row => {
+                                row[newTitle] = row[oldField];
+                                delete row[oldField];
+                            });
+
+                            // Update column definition
+                            column.updateDefinition({
+                                title: newTitle,
+                                field: newTitle,
+                                editor: true,
+                                headerClick: function(e, column) {
+                                    editColumnHeader(e, column);
+                                }
+                            });
+
+                            // Update table data
+                            table.setData(currentData);
                         }
 
                         async function shutdownServer() {
@@ -261,37 +410,18 @@ class ShareServer:
                         async function saveData() {
                             try {
                                 const data = table.getData();
-                                // Update column names if they've changed
-                                const currentCols = table.getColumns();
-                                const updatedData = data.map(row => {
-                                    const newRow = {};
-                                    currentCols.forEach((col, index) => {
-                                        const oldField = currentHeaders[index];
-                                        const newField = col.getField();
-                                        newRow[newField] = row[oldField];
-                                    });
-                                    return newRow;
-                                });
-
                                 await fetch('/update_data', {
                                     method: 'POST',
                                     headers: {
                                         'Content-Type': 'application/json',
                                     },
-                                    body: JSON.stringify({data: updatedData}),
+                                    body: JSON.stringify({data}),
                                 });
                                 showToast('Changes saved successfully!');
-                                
-                                // Update stored headers
-                                currentHeaders = currentCols.map(col => col.getField());
                             } catch (e) {
                                 console.error('Error saving data:', e);
                                 showToast('Error saving data', 'error');
                             }
-                        }
-
-                        function updateColumnTitle(column, title) {
-                            column.updateDefinition({ title: title, field: title });
                         }
                         
                         async function initializeTable() {
@@ -303,39 +433,12 @@ class ShareServer:
                                     return;
                                 }
 
-                                // Store initial headers
-                                currentHeaders = Object.keys(data[0]);
-
-                                const columns = currentHeaders.map(key => ({
+                                const columns = Object.keys(data[0]).map(key => ({
                                     title: key,
                                     field: key,
                                     editor: true,
                                     headerClick: function(e, column) {
-                                        const currentTitle = column.getDefinition().title;
-                                        const input = document.createElement("input");
-                                        input.value = currentTitle;
-                                        input.style.width = "100%";
-                                        input.style.boxSizing = "border-box";
-                                        input.style.padding = "5px";
-                                        input.style.border = "2px solid #3b82f6";
-                                        input.style.borderRadius = "4px";
-                                        
-                                        const headerElement = e.target.closest(".tabulator-col");
-                                        const titleElement = headerElement.querySelector(".tabulator-col-title");
-                                        titleElement.innerHTML = "";
-                                        titleElement.appendChild(input);
-                                        input.focus();
-                                        
-                                        input.addEventListener("blur", function() {
-                                            updateColumnTitle(column, this.value);
-                                        });
-                                        
-                                        input.addEventListener("keydown", function(e) {
-                                            if (e.key === "Enter") {
-                                                updateColumnTitle(column, this.value);
-                                                this.blur();
-                                            }
-                                        });
+                                        editColumnHeader(e, column);
                                     }
                                 }));
 
