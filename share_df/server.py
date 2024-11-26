@@ -620,7 +620,18 @@ def run_ngrok(url, email, shutdown_event):
         print(f"Ingress established at: {listener.url()}")
         shutdown_event.wait()
     except Exception as e:
-        print(f"Error setting up ngrok: {e}")
+        if "ERR_NGROK_4018" in str(e):
+            print("\nNgrok authentication token not found! Here's what you need to do:\n")
+            print("1. Sign up for a free ngrok account at https://dashboard.ngrok.com/signup")
+            print("2. Get your authtoken from https://dashboard.ngrok.com/get-started/your-authtoken")
+            print("3. Create a file named '.env' in your project directory")
+            print("4. Add this line to your .env file (replace with your actual token):")
+            print("   NGROK_AUTHTOKEN=your_token_here\n")
+            print("Once you've done this, try running the editor again!")
+            shutdown_event.set()
+        else:
+            print(f"Error setting up ngrok: {e}")
+            shutdown_event.set()
 
 def start_editor(df):
     load_dotenv()
