@@ -41,7 +41,14 @@ df = pd.DataFrame({
 df = pandaBear(df)
 print(df)
 ```
+
+## Google Collab
+- This code works by creating a localhost and then tunneling traffic to make it accesible to other people.
+- Thereby, since Google Collab code runs on a VM this is a interesting challenge to handle.
+- As of 0.1.7 the package offers experimental support for creating a Google generated link for DFs but this link is not shareable and the behavior is currently unstable for editing the dataframe.
+
 ## Future Functionality
 - True Asynchronicity with ipyparallel
 - Code Recreation (instead of overwriting the df just solve the code needed)
-- The package is not working on Google Collab currently, but is working for local scripting or notebooks
+- First-class Google Collab support
+- Multiple authentificated users

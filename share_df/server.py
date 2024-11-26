@@ -570,22 +570,44 @@ class ShareServer:
             return {"status": "shutting down"}
 
     def serve(self, host="0.0.0.0", port=8000):
-        server_config = uvicorn.Config(
-            self.app,
-            host=host,
-            port=port,
-            log_level="critical"
-        )
-        server = uvicorn.Server(server_config)
-        
-        server_thread = threading.Thread(
-            target=server.run,
-            daemon=True
-        )
-        server_thread.start()
-        time.sleep(1)
-        url = f"http://localhost:{port}"
-        return url, self.shutdown_event
+        try:
+            from google.colab import output
+            # If that works we're in Colab
+            output.serve_kernel_port_as_window(port)
+            server_config = uvicorn.Config(
+                self.app,
+                host=host,
+                port=port,
+                log_level="critical"
+            )
+            server = uvicorn.Server(server_config)
+            
+            server_thread = threading.Thread(
+                target=server.run,
+                daemon=True
+            )
+            server_thread.start()
+            time.sleep(2)
+            #None for url since we're using Colab's output
+            return None, self.shutdown_event
+        except ImportError:
+            # Not in Colab
+            server_config = uvicorn.Config(
+                self.app,
+                host=host,
+                port=port,
+                log_level="critical"
+            )
+            server = uvicorn.Server(server_config)
+            
+            server_thread = threading.Thread(
+                target=server.run,
+                daemon=True
+            )
+            server_thread.start()
+            time.sleep(1)
+            url = f"http://localhost:{port}"
+            return url, self.shutdown_event
 
 def run_server(df: pd.DataFrame):
     server = ShareServer(df)
@@ -602,11 +624,17 @@ def run_ngrok(url, email, shutdown_event):
 
 def start_editor(df):
     load_dotenv()
-    #Bear is for Better Editing And Reading
     print("Starting server with DataFrame:")
     print(df)
     url, shutdown_event, server = run_server(df)
-    print(f"Local server started at {url}")
-    email = input("Which gmail do you want to share this with? ")
-    run_ngrok(url=url, email=email, shutdown_event=shutdown_event)
+    try:
+        from google.colab import output
+        # If that works we're in Colab
+        print("Above is the Google generated link, but unfortunately its not shareable to other users as of now!")
+        shutdown_event.wait()
+    except ImportError:
+        #not in Colab
+        print(f"Local server started at {url}")
+        email = input("Which gmail do you want to share this with? ")
+        run_ngrok(url=url, email=email, shutdown_event=shutdown_event)
     return server.df
