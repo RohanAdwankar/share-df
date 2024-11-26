@@ -1,3 +1,7 @@
+# Demo
+
+https://github.com/user-attachments/assets/fd8e9ea4-b0d5-4d61-abfc-cd584ba7af44
+
 # Notes
 - The package is not working on Google Collab currently, but is working for local scripting or notebooks
 - The package requires using a .env that is supplied with an ngrok auth token. This is free and takes less than a minute [here](https://dashboard.ngrok.com/)!
@@ -10,6 +14,11 @@
 ## On the Client Side
 - OAuth for easy google based login ✅ 
 - Seamless UI to modify the dataframe ✅
+    * Change column names
+    * Drag around columns
+    * Change all values
+    * Rename columns
+    * Add new columns and rows
 - Send the results back with the click of a button ✅  
 ## Future Functionality
 - True Asynchronicity with ipyparallel
