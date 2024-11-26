@@ -588,7 +588,8 @@ class ShareServer:
 
 def run_server(df: pd.DataFrame):
     server = ShareServer(df)
-    return server.serve()
+    url, shutdown_event = server.serve()
+    return url, shutdown_event, server
 
 def run_ngrok(url, email, shutdown_event):
     try:
@@ -609,11 +610,11 @@ def main():
     print("Starting server with DataFrame:")
     print(df)
     
-    url, shutdown_event = run_server(df)
+    url, shutdown_event, server = run_server(df)
     print(f"Server started at {url}")
-    
+    print(server.df)
     email = input("Which gmail do you want to share this with? ")
     run_ngrok(url=url, email=email, shutdown_event=shutdown_event)
-
+    print(server.df)
 if __name__=="__main__":
     main()
