@@ -561,7 +561,7 @@ class ShareServer:
         @self.app.post("/update_data")
         async def update_data(data_update: DataUpdate):
             self.df = pd.DataFrame(data_update.data)
-            print("Updated DataFrame:", self.df)
+            print("Updated DataFrame:\n", self.df)
             return {"status": "success"}
             
         @self.app.post("/shutdown")
