@@ -1,7 +1,7 @@
 
 ## Instantly Share and Modify Dataframes With a Web Interface From Anywhere with One Line
 
-https://github.com/user-attachments/assets/fd8e9ea4-b0d5-4d61-abfc-cd584ba7af44
+<video src="https://github.com/user-attachments/assets/fd8e9ea4-b0d5-4d61-abfc-cd584ba7af44" controls="controls" muted="muted" style="max-width:100%;"></video>
 
 ## Vision
 This package enables cross-collaboration between nontechnical and technical contributors by allowing developers to generate a URL for free with one line of code that they can then send to nontechnical contributors enabling them to modify the dataframe with a web app. Then, they can send it back to the developer, directly generating the modified dataframe maintaining code continuity, and removing the burden of file transfer and conversion to other file formats.
