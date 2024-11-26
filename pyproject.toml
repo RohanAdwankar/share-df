@@ -1,9 +1,10 @@
 [tool.poetry]
 name = "share-df"
-version = "0.1.4"
+version = "0.1.5"
 description = "Share and Edit Pandas Dataframes with a Link!"
 authors = ["Rohan Adwankar <rohan.adwankar@gmail.com>"]
 readme = "README.md"
+repository = "https://github.com/RohanAdwankar/share-df"
 
 [tool.poetry.dependencies]
 python = ">=3.8,<4.0"
