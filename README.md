@@ -3,18 +3,16 @@
 
 https://github.com/user-attachments/assets/fd8e9ea4-b0d5-4d61-abfc-cd584ba7af44
 
-# Functionality
-
 ## Vision
 This package enables cross-collaboration between nontechnical and technical contributors by allowing developers to generate a URL for free with one line of code that they can then send to nontechnical contributors enabling them to modify the dataframe with a web app. Then, they can send it back to the developer, directly generating the modified dataframe maintaining code continuity, and removing the burden of file transfer and conversion to other file formats.
 
-## On the Dev Side
+## Technical Contributor Features
 - pip install share-df ✅
-- one command to generate link to send ✅ 
-- changes made by client are recieved back ✅
+- one function call to generate link to send, accessible anywhere ✅ 
+- changes made by client are recieved back as a dataframe for seamless development ✅
   
-## On the Client Side
-- OAuth for easy google based login ✅ 
+## Nontechnical Contributor Features
+- Easy Google OAuth login ✅ 
 - Seamless UI to modify the dataframe ✅
     * Change column names
     * Drag around columns
