@@ -466,6 +466,7 @@ class ShareServer:
                         async function shutdownServer() {
                             if (confirm('Are you sure you want to shutdown the server?')) {
                                 try {
+                                    saveData();
                                     await fetch('/shutdown', {method: 'POST'});
                                     showToast('Server shutting down...', 'success');
                                 } catch (e) {
@@ -587,7 +588,8 @@ class ShareServer:
 
 def run_server(df: pd.DataFrame):
     server = ShareServer(df)
-    return server.serve()
+    url, shutdown_event = server.serve()
+    return url, shutdown_event, server
 
 def run_ngrok(url, email, shutdown_event):
     try:
@@ -597,22 +599,45 @@ def run_ngrok(url, email, shutdown_event):
     except Exception as e:
         print(f"Error setting up ngrok: {e}")
 
+def pandaBear(df):
+    #Bear is for Better Editing And Reading
+    print("Starting server with DataFrame:")
+    print(df)
+    url, shutdown_event, server = run_server(df)
+    print(f"Local server started at {url}")
+    email = input("Which gmail do you want to share this with? ")
+    run_ngrok(url=url, email=email, shutdown_event=shutdown_event)
+    return server.df
+
+@pd.api.extensions.register_dataframe_accessor("pandaBear")
+class PandaBearAccessor:
+    def __init__(self, pandas_obj):
+        self._obj = pandas_obj
+        
+    def __call__(self):
+        self._obj.update(pandaBear(self._obj))
+        return None
+
 def main():
-    df = pd.DataFrame({
-        'Name': ['John', 'Alice', 'Bob', 'Carol'],
+    # 2 ways to use it
+    
+    # df = pd.DataFrame({
+    #     'Name': ['John', 'Alice', 'Bob', 'Carol'],
+    #     'Age': [25, 30, 35, 28],
+    #     'City': ['New York', 'London', 'Paris', 'Tokyo'],
+    #     'Salary': [50000, 60000, 75000, 65000]
+    # })
+    # df2 = pandaBear(df)
+    # print(df2)
+
+    df3 = pd.DataFrame({
+        'Name': ['Joe', 'Roger', 'Exponent', 'Yay!'],
         'Age': [25, 30, 35, 28],
         'City': ['New York', 'London', 'Paris', 'Tokyo'],
         'Salary': [50000, 60000, 75000, 65000]
     })
-    
-    print("Starting server with DataFrame:")
-    print(df)
-    
-    url, shutdown_event = run_server(df)
-    print(f"Server started at {url}")
-    
-    email = input("Which gmail do you want to share this with? ")
-    run_ngrok(url=url, email=email, shutdown_event=shutdown_event)
+    df3.pandaBear()
+    print(df3)
 
 if __name__=="__main__":
     main()
