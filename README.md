@@ -1,5 +1,8 @@
+<p align="center">
+<img width="420" alt="image" class="center" src="https://github.com/user-attachments/assets/9e2b699d-9b31-4e9e-8f0b-87c1f5420920">
+</p>
 
-## Instantly Share and Modify Dataframes With a Web Interface From Anywhere with One Line
+## share-df: Instantly Share and Modify Dataframes With a Web Interface From Anywhere
 
 <video src="https://github.com/user-attachments/assets/fd8e9ea4-b0d5-4d61-abfc-cd584ba7af44" controls="controls" muted="muted" style="max-width:100%;"></video>
 
