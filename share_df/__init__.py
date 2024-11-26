@@ -599,6 +599,16 @@ def run_ngrok(url, email, shutdown_event):
     except Exception as e:
         print(f"Error setting up ngrok: {e}")
 
+def pandaBear(df):
+    #Bear is for Better Editing And Reading
+    print("Starting server with DataFrame:")
+    print(df)
+    url, shutdown_event, server = run_server(df)
+    print(f"Local server started at {url}")
+    email = input("Which gmail do you want to share this with? ")
+    run_ngrok(url=url, email=email, shutdown_event=shutdown_event)
+    return server.df
+
 def main():
     df = pd.DataFrame({
         'Name': ['John', 'Alice', 'Bob', 'Carol'],
@@ -606,15 +616,8 @@ def main():
         'City': ['New York', 'London', 'Paris', 'Tokyo'],
         'Salary': [50000, 60000, 75000, 65000]
     })
-    
-    print("Starting server with DataFrame:")
-    print(df)
-    
-    url, shutdown_event, server = run_server(df)
-    print(f"Server started at {url}")
-    print(server.df)
-    email = input("Which gmail do you want to share this with? ")
-    run_ngrok(url=url, email=email, shutdown_event=shutdown_event)
-    print(server.df)
+    df2 = pandaBear(df)
+    print(df2)
+
 if __name__=="__main__":
     main()
