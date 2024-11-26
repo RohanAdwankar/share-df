@@ -1,6 +1,10 @@
+# Notes
+- The package is not working on Google Collab currently, but is working for local scripting or notebooks
+- The package requires using a .env that is supplied with an ngrok auth token. This is free and takes less than a minute [here](https://dashboard.ngrok.com/)!
+
 # Functionality
 ## On the Dev Side
-- pip install
+- pip install ✅
 - one command to generate link to send ✅ 
 - changes made by client are recieved back ✅
 ## On the Client Side
@@ -21,14 +25,4 @@
     })
     df2 = pandaBear(df)
     print(df2)
-```
-```
-    df3 = pd.DataFrame({
-        'Name': ['Joe', 'Roger', 'Exponent', 'Yay!'],
-        'Age': [25, 30, 35, 28],
-        'City': ['New York', 'London', 'Paris', 'Tokyo'],
-        'Salary': [50000, 60000, 75000, 65000]
-    })
-    df3.pandaBear()
-    print(df3)
 ```

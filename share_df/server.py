@@ -9,6 +9,7 @@ import uvicorn
 import pandas as pd
 from pydantic import BaseModel
 from typing import List, Dict, Any
+from dotenv import load_dotenv
 
 class DataUpdate(BaseModel):
     data: List[Dict[Any, Any]]
@@ -573,7 +574,7 @@ class ShareServer:
             self.app,
             host=host,
             port=port,
-            log_level="info"
+            log_level="critical"
         )
         server = uvicorn.Server(server_config)
         
@@ -600,6 +601,7 @@ def run_ngrok(url, email, shutdown_event):
         print(f"Error setting up ngrok: {e}")
 
 def start_editor(df):
+    load_dotenv()
     #Bear is for Better Editing And Reading
     print("Starting server with DataFrame:")
     print(df)
