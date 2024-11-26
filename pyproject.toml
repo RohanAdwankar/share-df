@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "share-df"
-version = "0.1.7"
+version = "0.1.8"
 description = "Share and Edit Pandas Dataframes with a Link!"
 authors = ["Rohan Adwankar <rohan.adwankar@gmail.com>"]
 readme = "README.md"
@@ -9,9 +9,7 @@ repository = "https://github.com/RohanAdwankar/share-df"
 [tool.poetry.dependencies]
 python = ">=3.8,<4.0"
 uvicorn = "^0.32.1"
-passlib = "^1.7.4"
 fastapi = "^0.115.5"
-bcrypt = "^4.2.1"
 ngrok = "^1.4.0"
 pytest = "^8.3.3"
 python-dotenv = "^1.0.1"
