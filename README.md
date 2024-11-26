@@ -1,19 +1,18 @@
-## Vision
-This package enables cross-collaboration between nontechnical and technical contributors by allowing developers to generate a URL for free with one line of code that they can then send to nontechnical contributors enabling them to modify the dataframe with a web app. Then, they can send it back to the developer, directly generating the modified dataframe maintaining code continuity, and removing the burden of file transfer and conversion to other file formats.
 
-# Demo
+# Instantly Modify Dataframes With Web Interface From Anywhere
 
 https://github.com/user-attachments/assets/fd8e9ea4-b0d5-4d61-abfc-cd584ba7af44
 
-# Notes
-- The package is not working on Google Collab currently, but is working for local scripting or notebooks
-- The package requires using a .env that is supplied with an ngrok auth token. This is free and takes less than a minute [here](https://dashboard.ngrok.com/)!
-
 # Functionality
+
+## Vision
+This package enables cross-collaboration between nontechnical and technical contributors by allowing developers to generate a URL for free with one line of code that they can then send to nontechnical contributors enabling them to modify the dataframe with a web app. Then, they can send it back to the developer, directly generating the modified dataframe maintaining code continuity, and removing the burden of file transfer and conversion to other file formats.
+
 ## On the Dev Side
 - pip install share-df ✅
 - one command to generate link to send ✅ 
 - changes made by client are recieved back ✅
+  
 ## On the Client Side
 - OAuth for easy google based login ✅ 
 - Seamless UI to modify the dataframe ✅
@@ -22,12 +21,17 @@ https://github.com/user-attachments/assets/fd8e9ea4-b0d5-4d61-abfc-cd584ba7af44
     * Change all values
     * Rename columns
     * Add new columns and rows
-- Send the results back with the click of a button ✅  
+- Send the results back with the click of a button ✅
+- 
 ## Future Functionality
 - True Asynchronicity with ipyparallel
 - Code Recreation (instead of overwriting the df just solve the code needed)
 
-# Examples
+## Notes
+- The package is not working on Google Collab currently, but is working for local scripting or notebooks
+- The package requires using a .env that is supplied with an ngrok auth token. This is free and takes less than a minute [here](https://dashboard.ngrok.com/)!
+
+## Examples
 ```
     df = pd.DataFrame({
         'Name': ['John', 'Alice', 'Bob', 'Carol'],
