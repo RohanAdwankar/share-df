@@ -13,8 +13,8 @@ This package enables cross-collaboration between nontechnical and technical cont
 
 ## Technical Contributor Features
 - ```pip install share-df``` 
-- one function call to generate link to send, accessible anywhere 
-- changes made by client are recieved back as a dataframe for seamless development 
+- one function call to generate a link to send, accessible anywhere 
+- changes made by the client are received back as a dataframe for seamless development 
   
 ## Nontechnical Contributor Features
 - Easy Google OAuth login 
@@ -48,12 +48,13 @@ print(df)
 ```
 
 ## Google Collab
-- This code works by creating a localhost and then tunneling traffic to make it accesible to other people.
-- Thereby, since Google Collab code runs on a VM this is a interesting challenge to handle.
-- As of 0.1.7 the package offers experimental support for creating a Google generated link for DFs but this link is not shareable and the behavior is currently unstable for editing the dataframe.
+- This code works by creating a localhost and then tunneling traffic to make it accessible to other people.
+- Thereby, since Google Collab code runs on a VM this is an interesting challenge to handle.
+- As of 0.1.7 the package offers experimental support for creating a Google-generated link for DFs but this link is not shareable and the behavior is currently unstable for editing the dataframe.
+- For Google Collab instead of using a .env I recommend putting your NGROK_AUTHTOKEN into the Google Collab secrets manager (key icon on the left side of the screen). That way your secrets also can be synced to other notebooks and you don't have to repeat the .env uploading each time.
 
 ## Future Functionality
 - True Asynchronicity with ipyparallel
 - Code Recreation (instead of overwriting the df just solve the code needed)
 - First-class Google Collab support
-- Multiple authentificated users
+- Multiple authenticated users
