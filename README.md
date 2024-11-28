@@ -53,6 +53,8 @@ print(df)
 - As of 0.1.7 the package offers experimental support for creating a Google-generated link for DFs but this link is not shareable and the behavior is currently unstable for editing the dataframe.
 - For Google Collab instead of using a .env I recommend putting your NGROK_AUTHTOKEN into the Google Collab secrets manager (key icon on the left side of the screen). That way your secrets also can be synced to other notebooks and you don't have to repeat the .env uploading each time.
 
+https://github.com/user-attachments/assets/373ec28c-d61e-467b-9b54-ff6225126396
+
 ## Future Functionality
 - True Asynchronicity with ipyparallel
 - Code Recreation (instead of overwriting the df just solve the code needed)
