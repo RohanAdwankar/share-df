@@ -55,7 +55,7 @@ print(df)
 - I initially aimed for full functionality (link sharing) with Google Colab however it seems impossible as Colab locks it to Colab session authentification.
 - Google has also stated that they may deprecate their serve_kernel_port_as_window function in the future in which case it will be swapped to serve_kernel_port_as_iframe and the same functionality will remain except it will be in the IFrame.
 
-https://github.com/user-attachments/assets/373ec28c-d61e-467b-9b54-ff6225126396
+<video src="https://github.com/user-attachments/assets/373ec28c-d61e-467b-9b54-ff6225126396" controls="controls" muted="muted" style="max-width:100%;"></video>
 
 ## Future Features
 - Better Dataframe handling (pagination, lazy loading, better frontend for big data)
