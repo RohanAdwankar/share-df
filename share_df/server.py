@@ -413,56 +413,6 @@ class ShareServer:
                             });
                         }
 
-                        async function initializeTable() {
-                            try {
-                                const data = await loadData();
-                                if (!data || data.length === 0) {
-                                    console.error('No data received');
-                                    showToast('No data available', 'error');
-                                    return;
-                                }
-
-                                const columns = [
-                                    {
-                                        formatter: "handle",
-                                        headerSort: false,
-                                        frozen: true,
-                                        width: 30,
-                                        minWidth: 30,
-                                        cssClass: "tabulator-row-handle",
-                                    },
-                                    ...Object.keys(data[0]).map(key => ({
-                                        title: key,
-                                        field: key,
-                                        editor: true,
-                                        headerClick: function(e, column) {
-                                            editColumnHeader(e, column);
-                                        }
-                                    }))
-                                ];
-
-                                table = new Tabulator("#data-table", {
-                                    data: data,
-                                    columns: columns,
-                                    layout: "fitColumns",
-                                    movableColumns: true,
-                                    movableRows: true,
-                                    history: true,
-                                    clipboard: true,
-                                    height: "100%",
-                                    keybindings: {
-                                        "copyToClipboard": "ctrl+67",
-                                        "pasteFromClipboard": "ctrl+86",
-                                        "undo": "ctrl+90",
-                                        "redo": "ctrl+89"
-                                    }
-                                });
-
-                            } catch (e) {
-                                console.error('Error initializing table:', e);
-                                showToast('Error initializing table', 'error');
-                            }
-                        }
 
                         async function shutdownServer() {
                             if (confirm('Are you sure you want to shutdown the server?')) {
