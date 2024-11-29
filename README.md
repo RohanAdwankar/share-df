@@ -50,15 +50,18 @@ print(df)
 ## Google Colab
 - This code works by creating a localhost and then tunneling traffic to make it accessible to other people.
 - Thereby, since Google Colab code runs on a VM this is an interesting challenge to handle.
-- As of 0.1.7 the package offers experimental support for creating a Google-generated link for DFs but this link is not shareable and the behavior is currently unstable for editing the dataframe.
+- As of 0.1.7 the package offers support for creating a Google-generated link for DFs but this link is not shareable.
 - For Google Colab instead of using a .env I recommend putting your NGROK_AUTHTOKEN into the Google Colab secrets manager (key icon on the left side of the screen). That way your secrets also can be synced to other notebooks and you don't have to repeat the .env uploading each time.
 - I initially aimed for full functionality (link sharing) with Google Colab however it seems impossible as Colab locks it to Colab session authentification.
 - Google has also stated that they may deprecate their serve_kernel_port_as_window function in the future in which case it will be swapped to serve_kernel_port_as_iframe and the same functionality will remain except it will be in the IFrame.
 
 https://github.com/user-attachments/assets/373ec28c-d61e-467b-9b54-ff6225126396
 
-## Future Functionality
+## Future Features
+- Better Dataframe handling (pagination, lazy loading, better frontend for big data)
+- Better Security (input sanitization, CSRF protection, configurable endpoint rate limiting)
+- Better UI (search, dark mode, export option)
+- IFrame Usage Option in Google Colab
 - True Asynchronicity with ipyparallel
 - Code Recreation (instead of overwriting the df just solve the code needed)
 - Multiple authenticated users
-- IFrame Usage Option in Google Colab

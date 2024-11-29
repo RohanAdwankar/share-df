@@ -510,6 +510,11 @@ class ShareServer:
             
         @self.app.post("/update_data")
         async def update_data(data_update: DataUpdate):
+            if len(data_update.data) > 1_000_000:
+                return JSONResponse(
+                    status_code=400,
+                    content={"error": "Dataset too large"}
+                )
             self.df = pd.DataFrame(data_update.data)
             print("Updated DataFrame:\n", self.df)
             return {"status": "success"}
