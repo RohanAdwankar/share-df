@@ -7,11 +7,12 @@ readme = "README.md"
 repository = "https://github.com/RohanAdwankar/share-df"
 
 [tool.poetry.dependencies]
-python = ">=3.8,<4.0"
+python = ">=3.9,<4.0"
 uvicorn = "^0.32.1"
 fastapi = "^0.115.5"
 ngrok = "^1.4.0"
 python-dotenv = "^1.0.1"
+pandas = "^2.2.3"
 
 
 [tool.poetry.group.dev.dependencies]
