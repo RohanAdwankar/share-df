@@ -338,9 +338,9 @@ class ShareServer:
                             </button>
                             <button onclick="shutdownServer()" class="button shutdown-button">
                                 <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
                                 </svg>
-                                Shutdown Server
+                                Send Data
                             </button>
                         </div>
                     </div>
@@ -464,7 +464,7 @@ class ShareServer:
 
 
                         async function shutdownServer() {
-                            if (confirm('Are you sure you want to shutdown the server?')) {
+                            if (confirm('Are you sure you want to send the data back and close the editor connection?')) {
                                 try {
                                     saveData();
                                     await fetch('/shutdown', {method: 'POST'});
