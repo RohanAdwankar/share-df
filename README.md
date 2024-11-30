@@ -3,8 +3,13 @@
 </p>
 
 ## share-df: Instantly Share and Modify Dataframes With a Web Interface From Anywhere
-### pip installs: ![PyPI Downloads](https://static.pepy.tech/badge/share-df)           version: [![PyPI Latest Release](https://img.shields.io/pypi/v/share-df.svg)](https://pypi.org/project/share-df/) 
-
+<p align="center">
+<a href="https://pepy.tech/project/share-df"><img src="https://static.pepy.tech/badge/share-df" alt="PyPI Downloads"></a>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+<a href="https://pypi.org/project/share-df/"><img src="https://img.shields.io/pypi/v/share-df.svg" alt="PyPI Latest Release"></a>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+<a href="https://github.com/RohanAdwankar/share-df">Demos and Source Code</a>
+</p>
 <video src="https://github.com/user-attachments/assets/fd8e9ea4-b0d5-4d61-abfc-cd584ba7af44" controls="controls" muted="muted" style="max-width:100%;"></video>
 
 ## Goal      
@@ -25,6 +30,7 @@ This package enables cross-collaboration between nontechnical and technical cont
     * Rename columns
     * Add new columns and rows
 - Send the results back with the click of a button
+- Work with large amounts of data quickly
 
 ## How to Run
 1. ```pip install share-df```
@@ -46,6 +52,14 @@ df = pd.DataFrame({
 df = pandaBear(df)
 print(df)
 ```
+
+## Handling Big Data
+
+<video src="https://github.com/user-attachments/assets/7fdaac68-b77d-49b3-89ff-17af028ff5bf" controls="controls" muted="muted" style="max-width:100%;"></video>
+
+- As per the demo, currently, the site takes 6 seconds to load a million rows.
+- After loading, it can handle cell changes, row additions, column sorting, new columns, fast scrolling, and sending the data back frictionlessly.
+- That being said given interest I can improve this experience.
 
 ## Google Colab
 - This code works by creating a localhost and then tunneling traffic to make it accessible to other people.
