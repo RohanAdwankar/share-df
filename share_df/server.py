@@ -269,9 +269,50 @@ class ShareServer:
                         .shutdown-button:hover {
                             background: #dc2626;
                         }
+
+                        .loading-overlay {
+                            position: fixed;
+                            top: 0;
+                            left: 0;
+                            width: 100%;
+                            height: 100%;
+                            background: rgba(255, 255, 255, 0.9);
+                            display: flex;
+                            flex-direction: column;
+                            justify-content: center;
+                            align-items: center;
+                            z-index: 1000;
+                            backdrop-filter: blur(5px);
+                        }
+
+                        .loading-spinner {
+                            width: 50px;
+                            height: 50px;
+                            border: 5px solid #f3f3f3;
+                            border-top: 5px solid #3b82f6;
+                            border-radius: 50%;
+                            animation: spin 1s linear infinite;
+                            margin-bottom: 20px;
+                        }
+
+                        .loading-text {
+                            font-size: 1.1rem;
+                            color: #1e293b;
+                            margin-bottom: 10px;
+                            font-weight: 500;
+                        }
+
+                        @keyframes spin {
+                            0% { transform: rotate(0deg); }
+                            100% { transform: rotate(360deg); }
+                        }
                     </style>
                 </head>
                 <body>
+                    <div id="loading-overlay" class="loading-overlay">
+                        <div class="loading-spinner"></div>
+                        <div id="loading-text" class="loading-text">Loading data...</div>
+                    </div>
                     <div class="header">
                         <h1 class="title">DataFrame Editor</h1>
                         <div class="button-container">
@@ -311,6 +352,14 @@ class ShareServer:
                     <script>
                         let table;
                         let columnCount = 0;
+
+                        function showLoading() {
+                            document.getElementById('loading-overlay').style.display = 'flex';
+                        }
+
+                        function hideLoading() {
+                            document.getElementById('loading-overlay').style.display = 'none';
+                        }
 
                         function showToast(message, type = 'success') {
                             const toast = document.createElement('div');
@@ -429,12 +478,20 @@ class ShareServer:
                         
                         async function loadData() {
                             try {
+                                showLoading();
                                 const response = await fetch('/data');
                                 const data = await response.json();
+                                if (!data || data.length === 0) {
+                                    hideLoading();
+                                    showToast('No data available', 'error');
+                                    return [];
+                                }
+                                document.getElementById('loading-text').textContent = `Preparing ${data.length.toLocaleString()} rows...`;
                                 return data;
                             } catch (e) {
                                 console.error('Error loading data:', e);
                                 showToast('Error loading data', 'error');
+                                hideLoading();
                                 return [];
                             }
                         }
@@ -489,10 +546,11 @@ class ShareServer:
                                         "redo": "ctrl+89"
                                     }
                                 });
-
+                                hideLoading();
                             } catch (e) {
                                 console.error('Error initializing table:', e);
                                 showToast('Error initializing table', 'error');
+                                hideLoading();
                             }
                         }
 
