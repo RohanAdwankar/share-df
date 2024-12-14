@@ -466,9 +466,20 @@ class ShareServer:
                         async function shutdownServer() {
                             if (confirm('Are you sure you want to send the data back and close the editor connection?')) {
                                 try {
-                                    saveData();
-                                    await fetch('/shutdown', {method: 'POST'});
-                                    showToast('Server shutting down...', 'success');
+                                    await saveData();
+                                    const response = await fetch('/shutdown', {method: 'POST'});
+                                    if (response.ok) {
+                                        showToast('Server shutting down...', 'success');
+                                        setTimeout(() => {
+                                            if (window.parent !== window) {
+                                                window.parent.document.querySelector('iframe').remove();
+                                            } else {
+                                                window.close();
+                                            }
+                                        }, 1000);
+                                    } else {
+                                        throw new Error('Shutdown request failed');
+                                    }
                                 } catch (e) {
                                     console.error('Error shutting down:', e);
                                     showToast('Error shutting down server', 'error');
@@ -580,7 +591,11 @@ class ShareServer:
         @self.app.post("/shutdown")
         async def shutdown():
             self.shutdown_event.set()
-            return {"status": "shutting down"}
+            # Return success response
+            return JSONResponse(
+                status_code=200,
+                content={"status": "shutting down"}
+            )
 
     def serve(self, host="0.0.0.0", port=8000, use_iframe=False):
         try:
@@ -651,8 +666,9 @@ def run_ngrok(url, email, shutdown_event):
 
 def start_editor(df, use_iframe: bool = False):
     load_dotenv()
-    print("Starting server with DataFrame:")
-    print(df)
+    if not use_iframe:
+        print("Starting server with DataFrame:")
+        print(df)
     url, shutdown_event, server = run_server(df, use_iframe=use_iframe)
     try:
         from google.colab import output
