@@ -582,11 +582,14 @@ class ShareServer:
             self.shutdown_event.set()
             return {"status": "shutting down"}
 
-    def serve(self, host="0.0.0.0", port=8000):
+    def serve(self, host="0.0.0.0", port=8000, use_iframe=False):
         try:
             from google.colab import output
             # If that works we're in Colab
-            output.serve_kernel_port_as_window(port)
+            if use_iframe:
+                output.serve_kernel_port_as_iframe(port)
+            else:
+                output.serve_kernel_port_as_window(port)
             server_config = uvicorn.Config(
                 self.app,
                 host=host,
@@ -622,9 +625,9 @@ class ShareServer:
             url = f"http://localhost:{port}"
             return url, self.shutdown_event
 
-def run_server(df: pd.DataFrame):
+def run_server(df: pd.DataFrame, use_iframe: bool = False):
     server = ShareServer(df)
-    url, shutdown_event = server.serve()
+    url, shutdown_event = server.serve(use_iframe=use_iframe)
     return url, shutdown_event, server
 
 def run_ngrok(url, email, shutdown_event):
@@ -646,7 +649,7 @@ def run_ngrok(url, email, shutdown_event):
             print(f"Error setting up ngrok: {e}")
             shutdown_event.set()
 
-def start_editor(df):
+def start_editor(df, use_iframe: bool = False):
     load_dotenv()
     print("Starting server with DataFrame:")
     print(df)
@@ -654,7 +657,10 @@ def start_editor(df):
     try:
         from google.colab import output
         # If that works we're in Colab
-        print("Above is the Google generated link, but unfortunately its not shareable to other users as of now!")
+        if use_iframe:
+            print("Editor opened in iframe below!")
+        else:
+            print("Above is the Google generated link, but unfortunately its not shareable to other users as of now!")        
         shutdown_event.wait()
     except ImportError:
         #not in Colab
