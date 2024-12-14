@@ -3,7 +3,7 @@ import pandas as pd
 __version__ = "0.1.0"
 __all__ = ["pandaBear"]
 
-def pandaBear(df: pd.DataFrame) -> pd.DataFrame:
+def pandaBear(df: pd.DataFrame, use_iframe: bool = False) -> pd.DataFrame:
     """
     Opens an interactive web editor for a pandas DataFrame with authentication.
     
@@ -14,7 +14,7 @@ def pandaBear(df: pd.DataFrame) -> pd.DataFrame:
         pd.DataFrame: The edited DataFrame
     """
     from .server import start_editor
-    return start_editor(df)
+    return start_editor(df, use_iframe)
 
 @pd.api.extensions.register_dataframe_accessor("pandaBear")
 class PandaBearAccessor:
