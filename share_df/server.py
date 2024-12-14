@@ -653,7 +653,7 @@ def start_editor(df, use_iframe: bool = False):
     load_dotenv()
     print("Starting server with DataFrame:")
     print(df)
-    url, shutdown_event, server = run_server(df)
+    url, shutdown_event, server = run_server(df, use_iframe=use_iframe)
     try:
         from google.colab import output
         # If that works we're in Colab
