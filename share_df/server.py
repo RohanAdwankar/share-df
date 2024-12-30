@@ -19,6 +19,7 @@ class ShareServer:
         self.app = FastAPI()
         self.shutdown_event = threading.Event()
         self.df = df
+        self.original_df = df.copy()
         
         self.app.add_middleware(
             CORSMiddleware,
@@ -306,6 +307,14 @@ class ShareServer:
                             0% { transform: rotate(0deg); }
                             100% { transform: rotate(360deg); }
                         }
+
+                        .cancel-button {
+                            background: #94a3b8;
+                        }
+                        
+                        .cancel-button:hover {
+                            background: #64748b;
+                        }
                     </style>
                 </head>
                 <body>
@@ -341,6 +350,12 @@ class ShareServer:
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
                                 </svg>
                                 Send Data
+                            </button>
+                            <button onclick="cancelChanges()" class="button cancel-button">
+                                <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                                </svg>
+                                Cancel
                             </button>
                         </div>
                     </div>
@@ -429,7 +444,6 @@ class ShareServer:
                                         return def;
                                     });
 
-                                    // Update data with new field name
                                     const updatedData = allData.map(row => {
                                         const newRow = {...row};
                                         newRow[newValue] = row[oldField];
@@ -437,11 +451,9 @@ class ShareServer:
                                         return newRow;
                                     });
 
-                                    // Rebuild table with new columns and data
                                     table.setColumns(newColumnDefinitions);
                                     table.setData(updatedData);
                                 } else {
-                                    // If no change, just restore the original title
                                     titleElement.innerHTML = currentTitle;
                                 }
                             };
@@ -461,7 +473,6 @@ class ShareServer:
                                 }
                             });
                         }
-
 
                         async function shutdownServer() {
                             if (confirm('Are you sure you want to send the data back and close the editor connection?')) {
@@ -565,6 +576,32 @@ class ShareServer:
                             }
                         }
 
+                        async function cancelChanges() {
+                            if (confirm('Are you sure you want to discard all changes and close the editor?')) {
+                                try {
+                                    const response = await fetch('/cancel', {
+                                        method: 'POST'
+                                    });
+                                    
+                                    if (response.ok) {
+                                        showToast('Discarding changes...', 'success');
+                                        setTimeout(() => {
+                                            if (window.parent !== window) {
+                                                window.parent.document.querySelector('iframe').remove();
+                                            } else {
+                                                window.close();
+                                            }
+                                        }, 1000);
+                                    } else {
+                                        throw new Error('Cancel request failed');
+                                    }
+                                } catch (e) {
+                                    console.error('Error canceling:', e);
+                                    showToast('Error canceling changes', 'error');
+                                }
+                            }
+                        }
+
                         document.addEventListener('DOMContentLoaded', initializeTable);
                     </script>
                 </body>
@@ -595,6 +632,15 @@ class ShareServer:
             return JSONResponse(
                 status_code=200,
                 content={"status": "shutting down"}
+            )
+        
+        @self.app.post("/cancel")
+        async def cancel():
+            self.df = self.original_df.copy()
+            self.shutdown_event.set()
+            return JSONResponse(
+                status_code=200,
+                content={"status": "canceling"}
             )
 
     def serve(self, host="0.0.0.0", port=8000, use_iframe=False):
