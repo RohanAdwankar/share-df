@@ -81,3 +81,7 @@ print(df)
 - True Asynchronicity with ipyparallel
 - Code Recreation (instead of overwriting the df just solve the code needed)
 - Multiple authenticated users
+### Community Requested Features (eg. from the reddit thread)
+- 3rd option for discarding changes
+- FastAPI template for easier maintenance
+- data validation for expected column types
