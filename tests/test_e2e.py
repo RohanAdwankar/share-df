@@ -3,6 +3,9 @@ import pandas as pd
 from share_df.server import ShareServer
 from selenium import webdriver
 from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.common.alert import Alert as SeleniumAlert
 import socket
 import time
 
@@ -27,6 +30,14 @@ def driver(server):
     driver = webdriver.Chrome()
     yield driver
     driver.quit()
+
+@pytest.fixture(scope="module") 
+def server_instance(get_free_port):
+   df = pd.DataFrame({'col1': [1,2,3], 'col2': ['a','b','c']})
+   server = ShareServer(df)
+   url, shutdown_event = server.serve(port=get_free_port)
+   yield server
+   shutdown_event.set()
 
 def test_edit_cell(driver, server):
     driver.get(server)
@@ -79,3 +90,32 @@ def test_rename_column(driver, server):
    time.sleep(2)
    
    assert "Renamed" in driver.find_element(By.CSS_SELECTOR, ".tabulator-header").text
+
+def test_cancel_changes(driver, server, server_instance):
+    driver.get(server)
+    time.sleep(2)
+    
+    driver.find_element(By.CSS_SELECTOR, ".tabulator-cell").click()
+    driver.find_element(By.CSS_SELECTOR, "input").send_keys("test change")
+    driver.find_element(By.CLASS_NAME, "header").click()
+    time.sleep(1)
+    
+    driver.find_element(By.CLASS_NAME, "add-button").click()
+    time.sleep(1)
+    
+    modified_cell_value = driver.find_element(By.CSS_SELECTOR, ".tabulator-cell").text
+    assert "test change" in modified_cell_value
+    
+    cancel_button = driver.find_element(By.CLASS_NAME, "cancel-button")
+    cancel_button.click()
+    time.sleep(1)
+    
+    alert = SeleniumAlert(driver)
+    alert.accept()
+    time.sleep(1)
+    
+    toast = WebDriverWait(driver, 10).until(
+        EC.presence_of_element_located((By.CLASS_NAME, "toast"))
+    )
+    assert "discarding changes" in toast.text.lower()    
+    assert server_instance.df.equals(server_instance.original_df)

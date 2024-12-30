@@ -52,10 +52,9 @@ def test_shutdown_endpoint(test_client):
     assert response.status_code == 200
     assert response.json()["status"] == "shutting down"
 
-@pytest.mark.asyncio
 async def test_server_serve_method(test_server):
     """Test that serve method returns correct URL and shutdown event"""
-    url, shutdown_event = await test_server.serve(host="127.0.0.1", port=8001)
+    url, shutdown_event = test_server.serve(host="127.0.0.1", port=8001)
     assert url == "http://localhost:8001"
     assert hasattr(shutdown_event, 'set')
     assert hasattr(shutdown_event, 'wait')
