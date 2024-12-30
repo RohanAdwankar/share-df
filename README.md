@@ -82,6 +82,8 @@ print(df)
 - Code Recreation (instead of overwriting the df just solve the code needed)
 - Multiple authenticated users
 ### Community Requested Features (eg. from the reddit thread)
-- 3rd option for discarding changes
-- FastAPI template for easier maintenance
-- data validation for expected column types
+&#x2611; 3rd option for discarding changes (completed as of 1.1.0)
+
+&#x2610; FastAPI template for easier maintenance
+
+&#x2610; data validation for expected column types
