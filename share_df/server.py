@@ -11,6 +11,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from pathlib import Path
 from typing import Union
 from .models import DataUpdate
+import os
+import ngrok
+from dotenv import load_dotenv
 
 class ShareServer:
     def __init__(self, df: Union[pd.DataFrame, pl.DataFrame]):
@@ -142,3 +145,48 @@ class ShareServer:
             time.sleep(1)
             url = f"http://localhost:{port}"
             return url, self.shutdown_event
+        
+def run_server(df: pd.DataFrame, use_iframe: bool = False):
+    server = ShareServer(df)
+    url, shutdown_event = server.serve(use_iframe=use_iframe)
+    return url, shutdown_event, server
+
+def run_ngrok(url, email, shutdown_event):
+    try:
+        listener = ngrok.forward(url, authtoken_from_env=True, oauth_provider="google", oauth_allow_emails=[email])
+        print(f"Ingress established at: {listener.url()}")
+        shutdown_event.wait()
+    except Exception as e:
+        if "ERR_NGROK_4018" in str(e):
+            print("\nNgrok authentication token not found! Here's what you need to do:\n")
+            print("1. Sign up for a free ngrok account at https://dashboard.ngrok.com/signup")
+            print("2. Get your authtoken from https://dashboard.ngrok.com/get-started/your-authtoken")
+            print("3. Create a file named '.env' in your project directory")
+            print("4. Add this line to your .env file (replace with your actual token):")
+            print("   NGROK_AUTHTOKEN=your_token_here\n")
+            print("Once you've done this, try running the editor again!")
+            shutdown_event.set()
+        else:
+            print(f"Error setting up ngrok: {e}")
+            shutdown_event.set()
+
+def start_editor(df, use_iframe: bool = False):
+    load_dotenv()
+    if not use_iframe:
+        print("Starting server with DataFrame:")
+        print(df)
+    url, shutdown_event, server = run_server(df, use_iframe=use_iframe)
+    try:
+        from google.colab import output
+        # If that works we're in Colab
+        if use_iframe:
+            print("Editor opened in iframe below!")
+        else:
+            print("Above is the Google generated link, but unfortunately its not shareable to other users as of now!")        
+        shutdown_event.wait()
+    except ImportError:
+        #not in Colab
+        print(f"Local server started at {url}")
+        email = input("Which gmail do you want to share this with? ")
+        run_ngrok(url=url, email=email, shutdown_event=shutdown_event)
+    return server.df
