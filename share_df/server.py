@@ -48,6 +48,7 @@ class ShareServer:
         @self.app.get("/")
         async def root(request: Request):
             return self.templates.TemplateResponse(
+                request,
                 "editor.html",
                 {"request": request}
             )
