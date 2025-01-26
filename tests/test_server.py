@@ -1,4 +1,3 @@
-# tests/test_server.py
 import pytest
 from fastapi.testclient import TestClient
 from share_df.server import ShareServer
@@ -58,7 +57,7 @@ async def test_server_serve_method(test_server):
     assert url == "http://localhost:8001"
     assert hasattr(shutdown_event, 'set')
     assert hasattr(shutdown_event, 'wait')
-    shutdown_event.set()  # Clean up
+    shutdown_event.set()
 
 def test_server_initialization_with_empty_df(empty_df):
     """Test server initialization with empty DataFrame"""

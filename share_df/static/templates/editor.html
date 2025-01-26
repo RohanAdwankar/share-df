@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>DataFrame Editor</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabulator/5.4.4/css/tabulator.min.css">
+    <link rel="stylesheet" href="{{ url_for('static', path='/css/styles.css') }}">
+    <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/tabulator/5.4.4/js/tabulator.min.js"></script>
+</head>
+<body>
+    <div id="loading-overlay" class="loading-overlay">
+        <div class="loading-spinner"></div>
+        <div id="loading-text" class="loading-text">Loading data...</div>
+    </div>
+    
+    <div class="header">
+        <h1 class="title">DataFrame Editor</h1>
+        <div class="button-container">
+            <div class="button-group">
+                <button onclick="addNewColumn()" class="button add-button">
+                    <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v12m6-6H6"></path>
+                    </svg>
+                    Add Column
+                </button>
+                <button onclick="addNewRow()" class="button add-button">
+                    <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v12m6-6H6"></path>
+                    </svg>
+                    Add Row
+                </button>
+            </div>
+            <button onclick="saveData()" class="button save-button">
+                <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                </svg>
+                Save Changes
+            </button>
+            <button onclick="shutdownServer()" class="button shutdown-button">
+                <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+                </svg>
+                Send Data
+            </button>
+            <button onclick="cancelChanges()" class="button cancel-button">
+                <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                </svg>
+                Cancel
+            </button>
+        </div>
+    </div>
+    
+    <div class="grid-container">
+        <div id="data-table"></div>
+    </div>
+
+    <script src="{{ url_for('static', path='/js/editor.js') }}"></script>
+</body>
+</html>

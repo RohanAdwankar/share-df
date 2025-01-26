@@ -1,0 +1,276 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+    background: #f1f5f9;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.header {
+    background: #3b82f6;
+    padding: 0.75rem 1.5rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.title {
+    color: white;
+    font-size: 1.5rem;
+    font-weight: 600;
+}
+
+.button-container {
+    display: flex;
+    gap: 1rem;
+}
+
+.button {
+    padding: 0.5rem 1rem;
+    border: none;
+    border-radius: 6px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    color: white;
+    font-size: 0.9rem;
+}
+
+.save-button {
+    background: #22c55e;
+}
+
+.save-button:hover {
+    background: #16a34a;
+}
+
+.shutdown-button {
+    background: #ef4444;
+}
+
+.shutdown-button:hover {
+    background: #dc2626;
+}
+
+.grid-container {
+    padding: 1rem;
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+#data-table {
+    flex: 1;
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    overflow: hidden;
+}
+
+.tabulator {
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    max-height: 100%;
+}
+
+.tabulator .tabulator-header {
+    background-color: #f8fafc;
+    border-bottom: 2px solid #e2e8f0;
+}
+
+.tabulator .tabulator-header .tabulator-col {
+    background-color: #f8fafc;
+    border-right: 1px solid #e2e8f0;
+    padding: 8px;
+}
+
+.tabulator .tabulator-header .tabulator-col-content {
+    padding: 0;
+}
+
+.tabulator .tabulator-row {
+    border-bottom: 1px solid #e2e8f0;
+}
+
+.tabulator .tabulator-row .tabulator-cell {
+    padding: 8px;
+    border-right: 1px solid #e2e8f0;
+}
+
+.tabulator .tabulator-row.tabulator-row-even {
+    background-color: #f8fafc;
+}
+
+.tabulator-row.tabulator-selected {
+    background-color: #e2e8f0 !important;
+}
+
+.tabulator-editing {
+    padding: 0 !important;
+}
+
+.tabulator-editing input {
+    border: 2px solid #3b82f6 !important;
+    padding: 6px !important;
+    width: 100% !important;
+    height: 100% !important;
+    box-sizing: border-box !important;
+}
+
+.tabulator-row-handle {
+    display: inline-block;
+    vertical-align: middle;
+    white-space: nowrap;
+    cursor: move;
+    width: 30px;
+    max-width: 30px;
+    height: 100%;
+    text-align: center;
+    background: #f8fafc;
+    border-right: 1px solid #e2e8f0;
+}
+
+.tabulator-row-handle::before {
+    content: "≡";
+    font-size: 20px;
+    color: #64748b;
+    line-height: 40px;
+}
+
+.toast {
+    position: fixed;
+    top: 1rem;
+    right: 1rem;
+    padding: 0.75rem 1.5rem;
+    border-radius: 6px;
+    color: white;
+    font-weight: 500;
+    animation: slideInRight 0.3s ease-out, fadeOut 0.3s ease-out 2s forwards;
+    z-index: 1000;
+}
+
+.toast.success {
+    background: #22c55e;
+}
+
+.toast.error {
+    background: #ef4444;
+}
+
+@keyframes slideInRight {
+    from { transform: translateX(100%); opacity: 0; }
+    to { transform: translateX(0); opacity: 1; }
+}
+
+@keyframes fadeOut {
+    from { opacity: 1; }
+    to { opacity: 0; }
+}
+
+.button-container {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.button-group {
+    display: flex;
+    gap: 0.5rem;
+    padding-right: 1rem;
+    border-right: 1px solid rgba(255, 255, 255, 0.2);
+    margin-right: 1rem;
+}
+
+.button {
+    padding: 0.5rem 1rem;
+    border: none;
+    border-radius: 6px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    color: white;
+    font-size: 0.9rem;
+}
+
+.add-button {
+    background: #6366f1;
+}
+
+.add-button:hover {
+    background: #4f46e5;
+}
+
+.save-button {
+    background: #22c55e;
+}
+
+.save-button:hover {
+    background: #16a34a;
+}
+
+.shutdown-button {
+    background: #ef4444;
+}
+
+.shutdown-button:hover {
+    background: #dc2626;
+}
+
+.loading-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(255, 255, 255, 0.9);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+    backdrop-filter: blur(5px);
+}
+
+.loading-spinner {
+    width: 50px;
+    height: 50px;
+    border: 5px solid #f3f3f3;
+    border-top: 5px solid #3b82f6;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    margin-bottom: 20px;
+}
+
+.loading-text {
+    font-size: 1.1rem;
+    color: #1e293b;
+    margin-bottom: 10px;
+    font-weight: 500;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+.cancel-button {
+    background: #94a3b8;
+}
+
+.cancel-button:hover {
+    background: #64748b;
+}
