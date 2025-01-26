@@ -2,20 +2,29 @@ import time
 import threading
 import uvicorn
 import pandas as pd
+import polars as pl
 from fastapi import FastAPI, Request
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pathlib import Path
+from typing import Union
 from .models import DataUpdate
 
 class ShareServer:
-    def __init__(self, df: pd.DataFrame):
+    def __init__(self, df: Union[pd.DataFrame, pl.DataFrame]):
         self.app = FastAPI()
         self.shutdown_event = threading.Event()
-        self.df = df
-        self.original_df = df.copy()
+        
+        if isinstance(df, pl.DataFrame):
+            self.original_type = "polars"
+            self.df = df.to_pandas()
+        else:
+            self.original_type = "pandas"
+            self.df = df
+            
+        self.original_df = self.df.copy()
         
         base_dir = Path(__file__).resolve().parent
         templates_dir = base_dir / "static" / "templates"
@@ -56,12 +65,19 @@ class ShareServer:
                     status_code=400,
                     content={"error": "Dataset too large"}
                 )
-            self.df = pd.DataFrame(data_update.data)
+            
+            updated_df = pd.DataFrame(data_update.data)
+            if self.original_type == "polars":
+                self.df = updated_df
+            else:
+                self.df = updated_df
+                
             print("Updated DataFrame:\n", self.df)
             return {"status": "success"}
             
         @self.app.post("/shutdown")
         async def shutdown():
+            final_df = self.get_final_dataframe()
             self.shutdown_event.set()
             return JSONResponse(
                 status_code=200,
@@ -76,6 +92,12 @@ class ShareServer:
                 status_code=200,
                 content={"status": "canceling"}
             )
+
+    def get_final_dataframe(self):
+        """Convert the DataFrame back to its original type before returning"""
+        if self.original_type == "polars":
+            return pl.from_pandas(self.df)
+        return self.df
 
     def serve(self, host="0.0.0.0", port=8000, use_iframe=False):
         try:

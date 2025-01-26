@@ -1,7 +1,7 @@
 [tool.poetry]
 name = "share-df"
-version = "1.1.3"
-description = "Share and Edit Pandas Dataframes with a Link!"
+version = "1.1.4"
+description = "Share and Edit Pandas/Polars Dataframes with a Link!"
 authors = ["Rohan Adwankar <rohan.adwankar@gmail.com>"]
 readme = "README.md"
 repository = "https://github.com/RohanAdwankar/share-df"
@@ -14,6 +14,8 @@ ngrok = "^1.4.0"
 python-dotenv = "^1.0.1"
 pandas = "^2.2.3"
 jinja2 = "^3.1.5"
+polars = "^1.21.0"
+pyarrow = "^19.0.0"
 
 
 [tool.poetry.group.dev.dependencies]

@@ -19,7 +19,8 @@ This package enables cross-collaboration between nontechnical and technical cont
 ## Technical Contributor Features
 - ```pip install share-df``` 
 - one function call to generate a link to send, accessible anywhere 
-- changes made by the client are received back as a dataframe for seamless development 
+- changes made by the client are received back as a dataframe for seamless development
+- compatale for both pandas and polars dataframes
   
 ## Nontechnical Contributor Features
 - Easy Google OAuth login 
@@ -73,7 +74,7 @@ print(df)
 
 <video src="https://github.com/user-attachments/assets/373ec28c-d61e-467b-9b54-ff6225126396" controls="controls" muted="muted" style="max-width:100%;"></video>
 
-## Future Features
+## Potential Features
 - Better Dataframe handling (pagination, lazy loading, better frontend for big data)
 - Better Security (input sanitization, CSRF protection, configurable endpoint rate limiting)
 - Better UI (search, dark mode, export option)
@@ -81,9 +82,8 @@ print(df)
 - True Asynchronicity with ipyparallel
 - Code Recreation (instead of overwriting the df just solve the code needed)
 - Multiple authenticated users
+- Data validation for expected column types
 ### Community Requested Features (eg. from the reddit thread)
 &#x2611; 3rd option for discarding changes (completed as of 1.1.0)
 
-&#x2610; FastAPI template for easier maintenance
-
-&#x2610; data validation for expected column types
+&#x2611; FastAPI template for easier maintenance
