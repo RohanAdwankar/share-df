@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "share-df"
-version = "1.2.1"
+version = "1.2.2"
 description = "Share and Edit Pandas/Polars Dataframes with a Link!"
 authors = ["Rohan Adwankar <rohan.adwankar@gmail.com>"]
 readme = "README.md"
