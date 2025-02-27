@@ -7,13 +7,6 @@
     <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/tabulator/5.4.4/js/tabulator.min.js"></script>
     <!-- Alpine.js for reactivity -->
     <script defer src="https://unpkg.com/alpinejs@3.12.0/dist/cdn.min.js"></script>
-    <!-- Debug utilities -->
-    <script src="{{ url_for('static', path='/js/debug.js') }}"></script>
-    <script src="{{ url_for('static', path='/js/cell-debug.js') }}"></script>
-    <script src="{{ url_for('static', path='/js/connection-debug.js') }}"></script>
-    <script src="{{ url_for('static', path='/js/cell-position-debug.js') }}"></script>
-    <script src="{{ url_for('static', path='/js/cell-position-helper.js') }}"></script>
-    <script src="{{ url_for('static', path='/js/cell-index-debug.js') }}"></script>
 </head>
 <body x-data="editorApp({{ collaborative|lower }})" x-init="init()">
     <div id="loading-overlay" class="loading-overlay" x-show="loading">
