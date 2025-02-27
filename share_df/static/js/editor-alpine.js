@@ -13,12 +13,13 @@ function editorApp(isCollaborative) {
         userName: `User ${Math.floor(Math.random() * 1000)}`,
         userColor: null,
         isConnected: false,
-        recentOperations: {}, // Add this to track operations
+        recentOperations: {}, // For tracking operations
+        _messageCache: {},
+        _lastActionId: null,
         
         // Initialize the application
         async init() {
             this.userColor = this.getRandomColor();
-            this.recentOperations = {}; // Add this to track operations
             await this.loadData();
             this.initializeTable();
             
@@ -69,10 +70,7 @@ function editorApp(isCollaborative) {
                     
                     // Send hover position to server with cell coordinates
                     self.sendCursorPosition(row, column);
-                },
-                
-                // Editing callbacks already implemented in setupCellEvents(),
-                // But we'll enhance them for better visibility
+                }
             };
             
             // Apply these callbacks to all columns
@@ -156,13 +154,13 @@ function editorApp(isCollaborative) {
             }
         },
         
-        // Fix the addNewColumn method to prevent double creation
+        // Add a new column to the table
         addNewColumn() {
+            // Generate a unique action ID
+            this._lastActionId = `col_${Date.now()}`;
+            
             this.columnCount++;
             const newColumnName = `New Column ${this.columnCount}`;
-            
-            // Create a unique ID for this operation to track our own operations
-            const operationId = `col_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
             
             this.table.addColumn({
                 title: newColumnName,
@@ -180,34 +178,25 @@ function editorApp(isCollaborative) {
             
             // Broadcast the column addition to other collaborators
             if (this.isCollaborative && this.isConnected) {
-                console.log(`Broadcasting add column: ${newColumnName}`);
+                console.log(`Broadcasting add column: ${newColumnName} with ID ${this._lastActionId}`);
                 this.socket.send(JSON.stringify({
                     type: "add_column",
                     columnName: newColumnName,
-                    operationId: operationId  // Include operation ID
+                    actionId: this._lastActionId
                 }));
-                
-                // Store in recent operations to avoid duplicating our own changes
-                this.recentOperations = this.recentOperations || {};
-                this.recentOperations[operationId] = true;
-                
-                // Clean up old operations after 5 seconds
-                setTimeout(() => {
-                    delete this.recentOperations[operationId];
-                }, 5000);
             }
         },
         
-        // Fix the addNewRow method similarly
+        // Add a new row to the table
         addNewRow() {
+            // Generate a unique action ID
+            this._lastActionId = `row_${Date.now()}`;
+            
             const columns = this.table.getColumns();
             const newRow = {};
             columns.forEach(column => {
                 newRow[column.getField()] = '';
             });
-            
-            // Create a unique ID for this operation
-            const operationId = `row_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
             
             // Add row to our table
             const addedRow = this.table.addRow(newRow);
@@ -215,21 +204,12 @@ function editorApp(isCollaborative) {
             
             // Broadcast the row addition to other collaborators
             if (this.isCollaborative && this.isConnected) {
-                console.log(`Broadcasting add row at position: ${rowId}`);
+                console.log(`Broadcasting add row at position: ${rowId} with ID ${this._lastActionId}`);
                 this.socket.send(JSON.stringify({
                     type: "add_row",
                     rowId: rowId,
-                    operationId: operationId
+                    actionId: this._lastActionId
                 }));
-                
-                // Store in recent operations to avoid duplicating our own changes
-                this.recentOperations = this.recentOperations || {};
-                this.recentOperations[operationId] = true;
-                
-                // Clean up old operations after 5 seconds
-                setTimeout(() => {
-                    delete this.recentOperations[operationId];
-                }, 5000);
             }
         },
         
@@ -302,29 +282,61 @@ function editorApp(isCollaborative) {
         
         // Set up WebSocket connection for real-time collaboration
         setupWebSocket() {
+            // First, clear any existing connection
+            if (this.socket) {
+                console.log("Closing existing WebSocket connection before creating a new one");
+                this.socket.onmessage = null; // Remove event handlers
+                this.socket.onclose = null;
+                this.socket.onerror = null;
+                this.socket.close();
+                this.socket = null;
+            }
+            
             const protocol = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
             const wsUrl = `${protocol}${window.location.host}/ws`;
             
             this.socket = new WebSocket(wsUrl);
             
+            // Set flag to ensure we only ask for username once
+            let userNamePromptShown = false;
+            
             this.socket.onopen = (e) => {
                 console.log("WebSocket connection established");
                 this.isConnected = true;
                 
-                // Ask for user name when first connecting
-                const name = prompt("Enter your name for collaboration:", this.userName) || this.userName;
-                this.userName = name;
-                
-                // Send user info to server
-                this.socket.send(JSON.stringify({
-                    type: "update_user",
-                    name: this.userName,
-                    color: this.userColor
-                }));
+                // Ask for user name when first connecting, but only once
+                if (!userNamePromptShown) {
+                    userNamePromptShown = true;
+                    const name = prompt("Enter your name for collaboration:", this.userName) || this.userName;
+                    this.userName = name;
+                    
+                    // Send user info to server
+                    this.socket.send(JSON.stringify({
+                        type: "update_user",
+                        name: this.userName,
+                        color: this.userColor
+                    }));
+                }
             };
             
+            // Use a message counter to help debug duplicate messages
+            let messageCounter = 0;
+            
             this.socket.onmessage = (event) => {
-                this.handleWebSocketMessage(JSON.parse(event.data));
+                try {
+                    const data = JSON.parse(event.data);
+                    messageCounter++;
+                    
+                    // Add message ID for debugging
+                    data._messageId = messageCounter;
+                    
+                    // Log the raw message
+                    console.log(`Message #${messageCounter} received:`, data);
+                    
+                    this.handleWebSocketMessage(data);
+                } catch (e) {
+                    console.error("Error handling WebSocket message:", e);
+                }
             };
             
             this.socket.onclose = (event) => {
@@ -348,9 +360,58 @@ function editorApp(isCollaborative) {
             this.trackMouseMovement();
         },
         
+        // Create and add the deduplication helper method
+        _deduplicateMessage(message) {
+            // Create a signature for this message to detect duplicates
+            let signature = `${message.type}:`;
+            
+            if (message.type === 'add_column') {
+                signature += message.columnName;
+            } else if (message.type === 'add_row') {
+                signature += message.rowId;
+            } else if (message.type === 'cell_edit') {
+                signature += `${message.rowId}:${message.column}:${message.value}`;
+            } else {
+                // Not a message type we deduplicate
+                return false;
+            }
+            
+            const now = Date.now();
+            
+            // Check if we've seen this message recently
+            if (this._messageCache[signature] && 
+                now - this._messageCache[signature] < 500) {
+                console.warn(`Duplicate message detected (${signature}), ignoring...`);
+                return true;
+            }
+            
+            // Store this message in the cache
+            this._messageCache[signature] = now;
+            
+            // Clean up old cache entries
+            setTimeout(() => {
+                if (this._messageCache[signature]) {
+                    delete this._messageCache[signature];
+                }
+            }, 2000);
+            
+            return false;
+        },
+        
         // Handle incoming WebSocket messages
         handleWebSocketMessage(message) {
-            console.log("Received message:", message);
+            // Skip duplicates
+            if (this._deduplicateMessage(message)) {
+                return;
+            }
+            
+            // Protect against own actions
+            if (message.actionId && message.actionId === this._lastActionId) {
+                console.log(`Ignoring own action with ID: ${message.actionId}`);
+                return;
+            }
+            
+            console.log("Processing message:", message);
             
             // Check if this is our own operation that we need to ignore
             if (message.operationId && this.recentOperations && this.recentOperations[message.operationId]) {
@@ -395,6 +456,7 @@ function editorApp(isCollaborative) {
                         
                         // Remove any cursors for this user
                         document.querySelectorAll(`.user-cursor[data-user-id="${message.userId}"]`).forEach(el => el.remove());
+                        document.querySelectorAll(`.user-cursor-absolute[data-user-id="${message.userId}"]`).forEach(el => el.remove());
                         
                         this.showToast(`${userName} left the session`, 'error');
                     }
@@ -406,22 +468,34 @@ function editorApp(isCollaborative) {
                         const cellId = message.cellId;
                         const [rowId, colField] = cellId.split("-");
                         
-                        const cell = this.table.getCell(rowId, colField);
-                        if (cell && cell.getElement()) {
-                            const userName = this.collaborators[message.userId]?.name || "User";
-                            const userColor = this.collaborators[message.userId]?.color || "#3b82f6";
-                            
-                            // Mark the cell as being edited
-                            cell.getElement().classList.add("cell-being-edited");
-                            cell.getElement().style.boxShadow = `0 0 0 2px ${userColor} inset`;
-                            
-                            // Add editor name
-                            const nameTag = document.createElement("div");
-                            nameTag.className = "editor-name";
-                            nameTag.textContent = userName;
-                            nameTag.style.backgroundColor = userColor;
-                            nameTag.style.color = "#ffffff";
-                            cell.getElement().appendChild(nameTag);
+                        try {
+                            // Get the row first
+                            const rows = this.table.getRows();
+                            if (rows && rowId < rows.length) {
+                                const row = rows[rowId];
+                                if (row) {
+                                    const cell = row.getCell(colField);
+                                    if (cell && cell.getElement()) {
+                                        const userName = this.collaborators[message.userId]?.name || "User";
+                                        const userColor = this.collaborators[message.userId]?.color || "#3b82f6";
+                                        
+                                        // Mark the cell as being edited
+                                        const element = cell.getElement();
+                                        element.classList.add("cell-being-edited");
+                                        element.style.boxShadow = `0 0 0 2px ${userColor} inset`;
+                                        
+                                        // Add editor name
+                                        const nameTag = document.createElement("div");
+                                        nameTag.className = "editor-name";
+                                        nameTag.textContent = userName;
+                                        nameTag.style.backgroundColor = userColor;
+                                        nameTag.style.color = "#ffffff";
+                                        element.appendChild(nameTag);
+                                    }
+                                }
+                            }
+                        } catch (e) {
+                            console.error("Error handling cell focus:", e);
                         }
                     }
                     break;
@@ -432,14 +506,26 @@ function editorApp(isCollaborative) {
                         const cellId = message.cellId;
                         const [rowId, colField] = cellId.split("-");
                         
-                        const cell = this.table.getCell(rowId, colField);
-                        if (cell && cell.getElement()) {
-                            cell.getElement().classList.remove("cell-being-edited");
-                            cell.getElement().style.boxShadow = "";
-                            
-                            // Remove editor name
-                            const nameTag = cell.getElement().querySelector(".editor-name");
-                            if (nameTag) nameTag.remove();
+                        try {
+                            // Get the row first
+                            const rows = this.table.getRows();
+                            if (rows && rowId < rows.length) {
+                                const row = rows[rowId];
+                                if (row) {
+                                    const cell = row.getCell(colField);
+                                    if (cell && cell.getElement()) {
+                                        const element = cell.getElement();
+                                        element.classList.remove("cell-being-edited");
+                                        element.style.boxShadow = "";
+                                        
+                                        // Remove editor name
+                                        const nameTag = element.querySelector(".editor-name");
+                                        if (nameTag) nameTag.remove();
+                                    }
+                                }
+                            }
+                        } catch (e) {
+                            console.error("Error handling cell blur:", e);
                         }
                     }
                     break;
@@ -454,34 +540,70 @@ function editorApp(isCollaborative) {
                         console.log(`Received cell edit: [${rowId}, ${column}] = ${value}`);
                         
                         try {
-                            // Try to find the row first
-                            const row = this.table.getRow(rowId);
-                            if (row) {
-                                const rowData = row.getData();
-                                rowData[column] = value;
-                                
-                                // Update the data
-                                this.table.updateData([rowData]);
-                                
-                                // Add visual feedback for the change
-                                setTimeout(() => {
-                                    try {
-                                        const cell = row.getCell(column);
-                                        if (cell && cell.getElement()) {
-                                            const element = cell.getElement();
-                                            element.classList.add("remote-edited-cell");
-                                            setTimeout(() => {
-                                                element.classList.remove("remote-edited-cell");
-                                            }, 2000);
+                            // Try multiple approaches to update the cell value
+                            let success = false;
+                            
+                            // Approach 1: Find the row in the data and update it
+                            const allData = this.table.getData();
+                            if (rowId < allData.length) {
+                                const rowData = allData[rowId];
+                                if (rowData) {
+                                    // Update the data directly
+                                    rowData[column] = value;
+                                    
+                                    // Force table refresh
+                                    this.table.updateData([rowData]);
+                                    console.log(`Updated row data for row ${rowId} using direct data access`);
+                                    success = true;
+                                }
+                            }
+                            
+                            // Approach 2: Use updateData with a reference to the row position
+                            if (!success) {
+                                try {
+                                    // Get all rows
+                                    const rows = this.table.getRows();
+                                    
+                                    if (rows && rowId < rows.length) {
+                                        const row = rows[rowId];
+                                        if (row) {
+                                            const data = row.getData();
+                                            data[column] = value;
+                                            this.table.updateData([data]);
+                                            console.log(`Updated row ${rowId} using rows array`);
+                                            success = true;
                                         }
-                                    } catch (e) {
-                                        console.error("Error highlighting edited cell:", e);
                                     }
-                                }, 10);
-                                
-                                console.log(`Updated cell: [${rowId}, ${column}] to ${value}`);
-                            } else {
-                                console.warn(`Could not find row ${rowId}`);
+                                } catch (e) {
+                                    console.warn("Error trying approach 2:", e);
+                                }
+                            }
+                            
+                            // Approach 3: Find the cell DOM element directly
+                            if (!success) {
+                                try {
+                                    // Find cell by its DOM position
+                                    const cellElements = document.querySelectorAll(`.tabulator-cell[tabulator-field="${column}"]`);
+                                    if (cellElements && rowId < cellElements.length) {
+                                        const cellElement = cellElements[rowId];
+                                        if (cellElement) {
+                                            // Update the visual display directly
+                                            cellElement.innerText = value;
+                                            cellElement.style.backgroundColor = "rgba(59, 130, 246, 0.3)";
+                                            setTimeout(() => {
+                                                cellElement.style.backgroundColor = "";
+                                            }, 1000);
+                                            console.log(`Updated cell at row ${rowId} using DOM method`);
+                                            success = true;
+                                        }
+                                    }
+                                } catch (e) {
+                                    console.warn("Error trying approach 3:", e);
+                                }
+                            }
+                            
+                            if (!success) {
+                                console.warn(`Could not update cell at row ${rowId}, column ${column}`);
                             }
                         } catch (e) {
                             console.error("Error updating cell:", e);
@@ -871,24 +993,21 @@ function editorApp(isCollaborative) {
             document.querySelectorAll(`.user-cursor[data-user-id="${userId}"]`).forEach(el => el.remove());
             
             try {
-                // Get row using getRows() which is more reliable
-                const rows = this.table.getRows();
-                if (!rows || rowPosition >= rows.length) {
-                    console.warn(`Could not find row at position ${rowPosition}`);
+                // Find the cell by direct DOM reference (more reliable than using Tabulator API)
+                const cellElements = document.querySelectorAll(`.tabulator-cell[tabulator-field="${colField}"]`);
+                let targetCell = null;
+                
+                // Find the cell at the correct position (accounting for header)
+                if (cellElements && cellElements.length > rowPosition) {
+                    targetCell = cellElements[rowPosition];
+                }
+                
+                if (!targetCell) {
+                    console.log(`Could not find cell at row ${rowPosition}, column ${colField}`);
                     return;
                 }
                 
-                const row = rows[rowPosition];
-                if (!row) return;
-                
-                // Get cell using row.getCell() which is the recommended way
-                const cell = row.getCell(colField);
-                if (!cell || !cell.getElement) return;
-                
-                const cellElement = cell.getElement();
-                if (!cellElement) return;
-                
-                const cellRect = cellElement.getBoundingClientRect();
+                const cellRect = targetCell.getBoundingClientRect();
                 const userName = this.collaborators[userId].name || "User";
                 const userColor = this.collaborators[userId].color || "#3b82f6";
                 
@@ -948,7 +1067,6 @@ function editorApp(isCollaborative) {
             
             // Check if we need to add columns
             const newColumnDefs = [];
-            
             columns.forEach(newCol => {
                 const existingCol = currentColumns.find(col => col.field === newCol.field);
                 if (!existingCol) {
@@ -1031,7 +1149,7 @@ function editorApp(isCollaborative) {
         // Generate a random color for the user
         getRandomColor() {
             const colors = [
-                "#3b82f6", "#ef4444", "#10b981", "#f59e0b", 
+                "#3b82f6", "#ef4444", "#10b981", "#f59e0b",
                 "#8b5cf6", "#ec4899", "#06b6d4", "#84cc16"
             ];
             return colors[Math.floor(Math.random() * colors.length)];

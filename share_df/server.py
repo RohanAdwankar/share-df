@@ -52,6 +52,9 @@ class ShareServer:
         )
         
         self.setup_routes()
+        
+        # Add message tracking for deduplication
+        self.recent_messages = {}
     
     def setup_routes(self):
         @self.app.get("/")
@@ -333,6 +336,26 @@ class ShareServer:
         client_count = len(self.active_connections)
         extra_info = ""
         
+        # Generate a server message ID for this broadcast
+        message["server_msg_id"] = f"{msg_type}_{time.time()}_{uuid.uuid4().hex[:6]}"
+        
+        # Check if this is a duplicate message (within 300ms)
+        message_key = self._get_message_signature(message)
+        current_time = time.time()
+        
+        if message_key in self.recent_messages:
+            last_time = self.recent_messages[message_key]
+            if current_time - last_time < 0.3:  # 300ms
+                print(f"Skipping duplicate message: {message_key}")
+                return
+                
+        # Update message timestamp
+        self.recent_messages[message_key] = current_time
+        
+        # Clean up old messages (older than 5 seconds)
+        self.recent_messages = {k: v for k, v in self.recent_messages.items() 
+                               if current_time - v < 5.0}
+        
         if msg_type == 'cell_edit':
             extra_info = f" - Cell [{message.get('rowId')}, {message.get('column')}] = {message.get('value')}"
         
@@ -349,6 +372,20 @@ class ShareServer:
                     print(f"Error broadcasting to {client_id}: {e}")
         
         print(f"Message sent to {sent_count}/{client_count} client(s)")
+
+    def _get_message_signature(self, message: dict) -> str:
+        """Generate a unique signature for a message to detect duplicates"""
+        msg_type = message.get('type', '')
+        
+        if msg_type == 'cell_edit':
+            return f"cell_edit:{message.get('userId')}:{message.get('rowId')}:{message.get('column')}:{message.get('value')}"
+        elif msg_type == 'add_column':
+            return f"add_column:{message.get('userId')}:{message.get('columnName')}"
+        elif msg_type == 'add_row':
+            return f"add_row:{message.get('userId')}:{message.get('rowId')}"
+        
+        # For other message types, use type + userId
+        return f"{msg_type}:{message.get('userId', '')}"
 
     def get_final_dataframe(self):
         """Convert the DataFrame back to its original type before returning"""
