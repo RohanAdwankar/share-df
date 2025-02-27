@@ -330,16 +330,25 @@ function handleWebSocketMessage(message) {
                 const column = message.column;
                 const value = message.value;
                 
-                // Find the cell and update it
+                console.log(`Received cell edit: [${rowId}, ${column}] = ${value}`);
+                
+                // Update the cell with the new value
                 try {
+                    // Try to find the cell directly
                     const cell = table.getCell(rowId, column);
                     if (cell) {
-                        cell.setValue(value, false); // Silent update (no events)
+                        // Use setValue to update cell (false = don't trigger events)
+                        cell.setValue(value, false);
                     } else {
-                        // If cell not found, update data model
-                        let rowData = table.getRow(rowId)?.getData() || {};
-                        rowData[column] = value;
-                        table.updateData([rowData]);
+                        // Fallback: update by row data (useful for newly added rows)
+                        const row = table.getRow(rowId);
+                        if (row) {
+                            let rowData = row.getData();
+                            rowData[column] = value;
+                            table.updateData([rowData]);
+                        } else {
+                            console.warn(`Could not find row ${rowId} to update cell`);
+                        }
                     }
                 } catch (e) {
                     console.error("Error updating cell:", e);
@@ -448,6 +457,8 @@ function sendCellBlur(row, column) {
 function sendCellEdit(row, column, value) {
     if (!isCollaborative || !isConnected) return;
     
+    console.log(`Sending cell edit: [${row}, ${column}] = ${value}`);
+    
     socket.send(JSON.stringify({
         type: "cell_edit",
         rowId: row,
@@ -531,12 +542,12 @@ async function initializeTable() {
         
         // Initialize WebSocket connection for collaboration
         if (isCollaborative) {
-            setupWebSocket();
-            trackMouseMovement();
+            // First set up the table events
             setupCellEvents();
             
-            // Hide save button in collaborative mode
-            document.querySelector('.save-button').style.display = 'none';
+            // Then connect via WebSocket
+            setupWebSocket();
+            trackMouseMovement();
         }
     } catch (e) {
         console.error('Error initializing table:', e);
@@ -577,8 +588,8 @@ document.addEventListener('DOMContentLoaded', initializeTable);
 function setupCellEvents() {
     if (!isCollaborative) return;
     
-    // Listen for cell focus events
-    table.on("cellClick", function(e, cell) {
+    // Listen for cell edit start events
+    table.on("cellEditing", function(cell) {
         const row = cell.getRow().getData().id || cell.getRow().getPosition();
         const column = cell.getColumn().getField();
         sendCellFocus(row, column);
@@ -589,6 +600,8 @@ function setupCellEvents() {
         const row = cell.getRow().getData().id || cell.getRow().getPosition();
         const column = cell.getColumn().getField();
         const value = cell.getValue();
+        
+        console.log(`Sending edit for cell [${row}, ${column}] = ${value}`);
         
         // Send edit to server immediately
         sendCellEdit(row, column, value);

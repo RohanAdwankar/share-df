@@ -166,8 +166,8 @@ body {
 }
 
 .tabulator .tabulator-header {
-    background-color: rgba(17, 24, 39, 0.8);
-    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    background-color: rgba(17, 24, 39, 0.95);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.2);
 }
 
 .tabulator .tabulator-header .tabulator-col {
@@ -184,12 +184,12 @@ body {
 }
 
 .tabulator .tabulator-tableHolder {
-    background-color: rgba(17, 24, 39, 0.5);
+    background-color: rgba(17, 24, 39, 0.7);
 }
 
 .tabulator .tabulator-row {
-    background-color: rgba(17, 24, 39, 0.5);
-    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    background-color: rgba(17, 24, 39, 0.7);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
     color: #e2e8f0;
     transition: background-color 0.2s ease;
 }
@@ -199,7 +199,7 @@ body {
 }
 
 .tabulator .tabulator-row.tabulator-row-even {
-    background-color: rgba(30, 41, 59, 0.5);
+    background-color: rgba(30, 41, 59, 0.7);
 }
 
 .tabulator .tabulator-row.tabulator-selected {
@@ -217,7 +217,7 @@ body {
 .tabulator .tabulator-row .tabulator-cell.tabulator-editing {
     border: 2px solid var(--primary);
     padding: 0.4rem 0.9rem;
-    background-color: rgba(30, 41, 59, 0.95);
+    background-color: rgba(30, 41, 59, 0.98);
     color: #e2e8f0;
 }
 
@@ -231,6 +231,11 @@ body {
     border: 1px solid rgba(59, 130, 246, 0.4);
     border-radius: 4px;
     padding: 4px 8px;
+}
+
+/* Remove any overlay */
+.table-container::before {
+    display: none;
 }
 
 /* Loading overlay */
@@ -311,6 +316,18 @@ body {
     to {
         opacity: 0;
     }
+}
+
+/* Toast container */
+.toast-container {
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 9999;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
 }
 
 /* Collaboration specific styles */

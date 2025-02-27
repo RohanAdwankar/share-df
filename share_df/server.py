@@ -57,8 +57,7 @@ class ShareServer:
         @self.app.get("/")
         async def root(request: Request):
             return self.templates.TemplateResponse(
-                request,
-                "editor.html",
+                "editor-alpine.html",  # Using the Alpine.js template
                 {"request": request, "collaborative": self.collaborative_mode}
             )
             
@@ -111,6 +110,8 @@ class ShareServer:
             self.active_connections[user_id] = websocket
             
             try:
+                print(f"New WebSocket connection: {user_id}")
+                
                 # Send current state to the new user
                 await websocket.send_json({
                     "type": "init",
@@ -128,8 +129,11 @@ class ShareServer:
                 while True:
                     data = await websocket.receive_text()
                     message = json.loads(data)
+                    message_type = message.get("type", "")
                     
-                    if message["type"] == "update_user":
+                    print(f"Received message from {user_id}: {message_type}")
+                    
+                    if message_type == "update_user":
                         # Update user info (name, color, cursor position)
                         self.collaborators[user_id] = CollaboratorInfo(
                             id=user_id,
@@ -145,7 +149,7 @@ class ShareServer:
                             "user": self.collaborators[user_id].dict()
                         })
                         
-                    elif message["type"] == "cell_focus":
+                    elif message_type == "cell_focus":
                         # User focused a cell
                         cell_id = message.get("cellId")
                         self.cell_editors[cell_id] = user_id
@@ -157,7 +161,7 @@ class ShareServer:
                             "userId": user_id
                         })
                         
-                    elif message["type"] == "cell_blur":
+                    elif message_type == "cell_blur":
                         # User left a cell
                         cell_id = message.get("cellId")
                         if cell_id in self.cell_editors and self.cell_editors[cell_id] == user_id:
@@ -170,11 +174,13 @@ class ShareServer:
                             "userId": user_id
                         })
                         
-                    elif message["type"] == "cell_edit":
+                    elif message_type == "cell_edit":
                         # User edited a cell
                         row_id = message.get("rowId")
                         column = message.get("column")
                         value = message.get("value")
+                        
+                        print(f"Cell edit from {user_id}: [{row_id}, {column}] = {value}")
                         
                         # Update the dataframe
                         if row_id is not None and column is not None:
@@ -182,11 +188,11 @@ class ShareServer:
                                 row_index = int(row_id) if isinstance(row_id, str) and row_id.isdigit() else row_id
                                 if isinstance(row_index, int) and 0 <= row_index < len(self.df):
                                     self.df.at[row_index, column] = value
-                                    print(f"Updated cell [{row_index}, {column}] to '{value}'")
+                                    print(f"Updated DataFrame at [{row_index}, {column}] = {value}")
                             except Exception as e:
                                 print(f"Error updating DataFrame: {e}")
                         
-                        # Broadcast edit to everyone
+                        # Broadcast edit to EVERYONE (including the sender for confirmation)
                         await self.broadcast({
                             "type": "cell_edit",
                             "rowId": row_id,
@@ -195,7 +201,7 @@ class ShareServer:
                             "userId": user_id
                         })
                         
-                    elif message["type"] == "cursor_move":
+                    elif message_type == "cursor_move":
                         # User moved their cursor
                         if user_id in self.collaborators:
                             self.collaborators[user_id].cursor = message.get("cursor", {"row": -1, "col": -1})
@@ -208,6 +214,7 @@ class ShareServer:
                             }, exclude=user_id)
             
             except WebSocketDisconnect:
+                print(f"WebSocket disconnected: {user_id}")
                 # Remove disconnected user
                 if user_id in self.active_connections:
                     del self.active_connections[user_id]
@@ -229,7 +236,7 @@ class ShareServer:
                     "name": user_name
                 })
             except Exception as e:
-                print(f"WebSocket error: {e}")
+                print(f"WebSocket error for {user_id}: {e}")
                 if user_id in self.active_connections:
                     del self.active_connections[user_id]
                 if user_id in self.collaborators:
@@ -237,12 +244,26 @@ class ShareServer:
     
     async def broadcast(self, message: dict, exclude: str = None):
         """Broadcast a message to all connected clients except the excluded one"""
-        for user_id, connection in self.active_connections.items():
-            if exclude is None or user_id != exclude:
+        msg_type = message.get('type', 'unknown')
+        client_count = len(self.active_connections)
+        extra_info = ""
+        
+        if msg_type == 'cell_edit':
+            extra_info = f" - Cell [{message.get('rowId')}, {message.get('column')}] = {message.get('value')}"
+        
+        print(f"Broadcasting '{msg_type}'{extra_info} to {client_count} client(s)" + 
+              (f" (excluding {exclude})" if exclude else ""))
+        
+        sent_count = 0
+        for client_id, connection in self.active_connections.items():
+            if exclude is None or client_id != exclude:
                 try:
                     await connection.send_json(message)
+                    sent_count += 1
                 except Exception as e:
-                    print(f"Error broadcasting to {user_id}: {e}")
+                    print(f"Error broadcasting to {client_id}: {e}")
+        
+        print(f"Message sent to {sent_count}/{client_count} client(s)")
 
     def get_final_dataframe(self):
         """Convert the DataFrame back to its original type before returning"""
@@ -350,10 +371,10 @@ def start_editor(df, use_iframe: bool = False, collaborative: bool = False, shar
         if use_iframe:
             print("Editor opened in iframe below!")
         else:
-            print("Above is the Google generated link, but unfortunately its not shareable to other users as of now!")        
+            print("Above is the Google generated link, but unfortunately its not shareable to other users as of now!")
         shutdown_event.wait()
     except ImportError:
-        #not in Colab
+        # not in Colab
         print(f"Local server started at {url}")
         
         if collaborative:
