@@ -37,18 +37,20 @@
                         </button>
                     </div>
                     
+                    {% if not collaborative %}
                     <button onclick="saveData()" class="button save-button">
                         <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
                         </svg>
                         Save Changes
                     </button>
+                    {% endif %}
                     
                     <button onclick="shutdownServer()" class="button send-button">
                         <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
                         </svg>
-                        Send Data
+                        {% if collaborative %}Finish Editing{% else %}Send Data{% endif %}
                     </button>
                     
                     <button onclick="cancelChanges()" class="button cancel-button">
@@ -59,6 +61,13 @@
                     </button>
                 </div>
             </div>
+            
+            {% if collaborative %}
+            <div id="collaborators-container" class="collaborators-container" style="display: none;">
+                <div class="collaborators-header">Collaborators:</div>
+                <div id="collaborators-list" class="collaborators-list"></div>
+            </div>
+            {% endif %}
         </header>
         
         <main class="main-content">
@@ -68,6 +77,10 @@
         </main>
     </div>
 
+    <script>
+        // Pass server-side variables to JavaScript
+        const isCollaborative = {% if collaborative %}true{% else %}false{% endif %};
+    </script>
     <script src="{{ url_for('static', path='/js/editor.js') }}"></script>
 </body>
 </html>

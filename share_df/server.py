@@ -3,22 +3,28 @@ import threading
 import uvicorn
 import pandas as pd
 import polars as pl
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pathlib import Path
-from typing import Union
-from .models import DataUpdate
+from typing import Union, Dict, List
+from .models import DataUpdate, CollaboratorInfo
 import os
 import ngrok
 from dotenv import load_dotenv
+import json
+import uuid
 
 class ShareServer:
-    def __init__(self, df: Union[pd.DataFrame, pl.DataFrame]):
+    def __init__(self, df: Union[pd.DataFrame, pl.DataFrame], collaborative_mode: bool = False):
         self.app = FastAPI()
         self.shutdown_event = threading.Event()
+        self.collaborative_mode = collaborative_mode
+        self.active_connections: Dict[str, WebSocket] = {}
+        self.collaborators: Dict[str, CollaboratorInfo] = {}
+        self.cell_editors: Dict[str, str] = {}  # Maps cell ID to user ID of current editor
         
         if isinstance(df, pl.DataFrame):
             self.original_type = "polars"
@@ -53,7 +59,7 @@ class ShareServer:
             return self.templates.TemplateResponse(
                 request,
                 "editor.html",
-                {"request": request}
+                {"request": request, "collaborative": self.collaborative_mode}
             )
             
         @self.app.get("/data")
@@ -96,6 +102,147 @@ class ShareServer:
                 status_code=200,
                 content={"status": "canceling"}
             )
+        
+        @self.app.websocket("/ws")
+        async def websocket_endpoint(websocket: WebSocket):
+            await websocket.accept()
+            user_id = str(uuid.uuid4())
+            user_name = f"User {user_id[:6]}"
+            self.active_connections[user_id] = websocket
+            
+            try:
+                # Send current state to the new user
+                await websocket.send_json({
+                    "type": "init",
+                    "userId": user_id,
+                    "collaborators": [collab.dict() for collab in self.collaborators.values()]
+                })
+                
+                # Notify other users about the new user
+                await self.broadcast({
+                    "type": "user_joined",
+                    "userId": user_id,
+                    "name": user_name
+                }, exclude=user_id)
+                
+                while True:
+                    data = await websocket.receive_text()
+                    message = json.loads(data)
+                    
+                    if message["type"] == "update_user":
+                        # Update user info (name, color, cursor position)
+                        self.collaborators[user_id] = CollaboratorInfo(
+                            id=user_id,
+                            name=message.get("name", user_name),
+                            color=message.get("color", "#3b82f6"),
+                            cursor=message.get("cursor", {"row": -1, "col": -1}),
+                            email=message.get("email", "")
+                        )
+                        
+                        # Broadcast user info update to everyone
+                        await self.broadcast({
+                            "type": "user_update",
+                            "user": self.collaborators[user_id].dict()
+                        })
+                        
+                    elif message["type"] == "cell_focus":
+                        # User focused a cell
+                        cell_id = message.get("cellId")
+                        self.cell_editors[cell_id] = user_id
+                        
+                        # Broadcast focus info to everyone
+                        await self.broadcast({
+                            "type": "cell_focus",
+                            "cellId": cell_id,
+                            "userId": user_id
+                        })
+                        
+                    elif message["type"] == "cell_blur":
+                        # User left a cell
+                        cell_id = message.get("cellId")
+                        if cell_id in self.cell_editors and self.cell_editors[cell_id] == user_id:
+                            self.cell_editors.pop(cell_id)
+                            
+                        # Broadcast blur info to everyone
+                        await self.broadcast({
+                            "type": "cell_blur",
+                            "cellId": cell_id,
+                            "userId": user_id
+                        })
+                        
+                    elif message["type"] == "cell_edit":
+                        # User edited a cell
+                        row_id = message.get("rowId")
+                        column = message.get("column")
+                        value = message.get("value")
+                        
+                        # Update the dataframe
+                        if row_id is not None and column is not None:
+                            try:
+                                row_index = int(row_id) if isinstance(row_id, str) and row_id.isdigit() else row_id
+                                if isinstance(row_index, int) and 0 <= row_index < len(self.df):
+                                    self.df.at[row_index, column] = value
+                                    print(f"Updated cell [{row_index}, {column}] to '{value}'")
+                            except Exception as e:
+                                print(f"Error updating DataFrame: {e}")
+                        
+                        # Broadcast edit to everyone
+                        await self.broadcast({
+                            "type": "cell_edit",
+                            "rowId": row_id,
+                            "column": column,
+                            "value": value,
+                            "userId": user_id
+                        })
+                        
+                    elif message["type"] == "cursor_move":
+                        # User moved their cursor
+                        if user_id in self.collaborators:
+                            self.collaborators[user_id].cursor = message.get("cursor", {"row": -1, "col": -1})
+                            
+                            # Broadcast cursor position to everyone else
+                            await self.broadcast({
+                                "type": "cursor_move",
+                                "userId": user_id,
+                                "cursor": self.collaborators[user_id].cursor
+                            }, exclude=user_id)
+            
+            except WebSocketDisconnect:
+                # Remove disconnected user
+                if user_id in self.active_connections:
+                    del self.active_connections[user_id]
+                
+                user_name = self.collaborators[user_id].name if user_id in self.collaborators else user_name
+                
+                if user_id in self.collaborators:
+                    del self.collaborators[user_id]
+                
+                # Remove them from cell editors
+                cells_to_remove = [cell_id for cell_id, editor_id in self.cell_editors.items() if editor_id == user_id]
+                for cell_id in cells_to_remove:
+                    del self.cell_editors[cell_id]
+                    
+                # Notify others about the disconnection
+                await self.broadcast({
+                    "type": "user_left",
+                    "userId": user_id,
+                    "name": user_name
+                })
+            except Exception as e:
+                print(f"WebSocket error: {e}")
+                if user_id in self.active_connections:
+                    del self.active_connections[user_id]
+                if user_id in self.collaborators:
+                    del self.collaborators[user_id]
+    
+    async def broadcast(self, message: dict, exclude: str = None):
+        """Broadcast a message to all connected clients except the excluded one"""
+        for user_id, connection in self.active_connections.items():
+            if exclude is None or user_id != exclude:
+                try:
+                    await connection.send_json(message)
+                except Exception as e:
+                    print(f"Error broadcasting to {user_id}: {e}")
 
     def get_final_dataframe(self):
         """Convert the DataFrame back to its original type before returning"""
@@ -146,15 +293,29 @@ class ShareServer:
             url = f"http://localhost:{port}"
             return url, self.shutdown_event
         
-def run_server(df: pd.DataFrame, use_iframe: bool = False):
-    server = ShareServer(df)
+def run_server(df: pd.DataFrame, use_iframe: bool = False, collaborative: bool = False):
+    server = ShareServer(df, collaborative_mode=collaborative)
     url, shutdown_event = server.serve(use_iframe=use_iframe)
     return url, shutdown_event, server
 
-def run_ngrok(url, email, shutdown_event):
+def run_ngrok(url, emails, shutdown_event):
     try:
-        listener = ngrok.forward(url, authtoken_from_env=True, oauth_provider="google", oauth_allow_emails=[email])
+        # Parse comma-separated emails if provided as a string
+        if isinstance(emails, str):
+            # Split by comma and strip whitespace from each email
+            emails = [email.strip() for email in emails.split(',') if email.strip()]
+        
+        if not emails:
+            print("No valid emails provided for sharing.")
+            shutdown_event.set()
+            return
+        
+        print(f"Attempting to share with: {', '.join(emails)}")
+        
+        listener = ngrok.forward(url, authtoken_from_env=True, oauth_provider="google", oauth_allow_emails=emails)
         print(f"Ingress established at: {listener.url()}")
+        print(f"Share this URL with these email addresses: {', '.join(emails)}")
+        print("Note: Recipients must log in with the exact email address you specified.")
         shutdown_event.wait()
     except Exception as e:
         if "ERR_NGROK_4018" in str(e):
@@ -166,16 +327,23 @@ def run_ngrok(url, email, shutdown_event):
             print("   NGROK_AUTHTOKEN=your_token_here\n")
             print("Once you've done this, try running the editor again!")
             shutdown_event.set()
+        elif "ERR_NGROK_5511" in str(e):
+            print("\nEmail authorization error. Please note:")
+            print("1. You need a paid ngrok account to use OAuth restrictions")
+            print("2. Make sure the emails you entered are exact and valid")
+            print("3. Try without specifying emails or upgrade your ngrok account\n")
+            print("Error details:", e)
+            shutdown_event.set()
         else:
             print(f"Error setting up ngrok: {e}")
             shutdown_event.set()
 
-def start_editor(df, use_iframe: bool = False):
+def start_editor(df, use_iframe: bool = False, collaborative: bool = False, share_with: List[str] = None):
     load_dotenv()
     if not use_iframe:
         print("Starting server with DataFrame:")
         print(df)
-    url, shutdown_event, server = run_server(df, use_iframe=use_iframe)
+    url, shutdown_event, server = run_server(df, use_iframe=use_iframe, collaborative=collaborative)
     try:
         from google.colab import output
         # If that works we're in Colab
@@ -187,6 +355,18 @@ def start_editor(df, use_iframe: bool = False):
     except ImportError:
         #not in Colab
         print(f"Local server started at {url}")
-        email = input("Which gmail do you want to share this with? ")
-        run_ngrok(url=url, email=email, shutdown_event=shutdown_event)
+        
+        if collaborative:
+            if share_with:
+                # In collaborative mode with emails to share with
+                print(f"Collaborative mode enabled!")
+                run_ngrok(url=url, emails=share_with, shutdown_event=shutdown_event)
+            else:
+                # Collaborative but no emails provided, ask for them
+                email_input = input("Enter email(s) to share with (comma separated): ")
+                run_ngrok(url=url, emails=email_input, shutdown_event=shutdown_event)
+        else:
+            # Standard mode
+            email = input("Which gmail do you want to share this with? ")
+            run_ngrok(url=url, emails=email, shutdown_event=shutdown_event)
     return server.df
