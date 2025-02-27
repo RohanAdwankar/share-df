@@ -13,6 +13,7 @@
     <script src="{{ url_for('static', path='/js/connection-debug.js') }}"></script>
     <script src="{{ url_for('static', path='/js/cell-position-debug.js') }}"></script>
     <script src="{{ url_for('static', path='/js/cell-position-helper.js') }}"></script>
+    <script src="{{ url_for('static', path='/js/cell-index-debug.js') }}"></script>
 </head>
 <body x-data="editorApp({{ collaborative|lower }})" x-init="init()">
     <div id="loading-overlay" class="loading-overlay" x-show="loading">
