@@ -395,6 +395,7 @@ body {
     z-index: 100;
     box-sizing: border-box;
     transition: all 0.2s ease;
+    animation: pulse 2s infinite;
 }
 
 /* User cursor for absolute positioning (mouse tracking) */
@@ -407,6 +408,7 @@ body {
     border-radius: 50%;
     transform: translate(-50%, -50%);
     transition: left 0.1s ease, top 0.1s ease, opacity 0.5s ease;
+    box-shadow: 0 0 0 2px white;
 }
 
 /* Shared cursor name tag styling */
@@ -416,13 +418,14 @@ body {
     left: 50%;
     transform: translateX(-50%);
     font-size: 10px;
-    padding: 2px 6px;
+    padding: 3px 6px;
     border-radius: 3px;
     white-space: nowrap;
     z-index: 101;
     color: white;
     font-weight: bold;
     user-select: none;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
 }
 
 /* Highlight cell when edited */
@@ -437,7 +440,7 @@ body {
 
 /* Animation for newly edited cells */
 @keyframes highlight-pulse {
-    0% { background-color: rgba(59, 130, 246, 0.5); }
+    0% { background-color: rgba(59, 130, 246, 0.6); }
     100% { background-color: transparent; }
 }
 

@@ -9,6 +9,10 @@
     <script defer src="https://unpkg.com/alpinejs@3.12.0/dist/cdn.min.js"></script>
     <!-- Debug utilities (will only activate in development environments) -->
     <script src="{{ url_for('static', path='/js/debug.js') }}"></script>
+    <!-- Table cell debugging (will only activate with debug=table parameter) -->
+    <script src="{{ url_for('static', path='/js/cell-debug.js') }}"></script>
+    <!-- Connection debugging (will only activate with debug=conn parameter) -->
+    <script src="{{ url_for('static', path='/js/connection-debug.js') }}"></script>
 </head>
 <body x-data="editorApp({{ collaborative|lower }})" x-init="init()">
     <div id="loading-overlay" class="loading-overlay" x-show="loading">

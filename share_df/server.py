@@ -133,6 +133,23 @@ class ShareServer:
                     
                     print(f"Received message from {user_id}: {message_type}")
                     
+                    # Add debug ping handler
+                    if message_type == "debug_ping":
+                        timestamp = message.get("timestamp", 0)
+                        now = int(time.time() * 1000)
+                        latency = now - timestamp
+                        
+                        print(f"Debug ping from {user_id}: latency {latency}ms")
+                        
+                        # Send pong response
+                        await websocket.send_json({
+                            "type": "debug_pong",
+                            "timestamp": timestamp,
+                            "server_time": now,
+                            "latency": latency
+                        })
+                        continue
+                    
                     if message_type == "update_user":
                         # Update user info (name, color, cursor position)
                         self.collaborators[user_id] = CollaboratorInfo(
@@ -254,27 +271,31 @@ class ShareServer:
                     elif message_type == "add_column":
                         # User added a column
                         column_name = message.get("columnName", "")
+                        operation_id = message.get("operationId", "") # Pass through the operation ID
                         
                         print(f"User {user_id} added column: {column_name}")
                         
-                        # Broadcast to everyone else
+                        # Broadcast to everyone
                         await self.broadcast({
                             "type": "add_column",
                             "columnName": column_name,
-                            "userId": user_id
+                            "userId": user_id,
+                            "operationId": operation_id
                         })
                         
                     elif message_type == "add_row":
                         # User added a row
                         row_id = message.get("rowId", -1)
+                        operation_id = message.get("operationId", "") # Pass through the operation ID
                         
                         print(f"User {user_id} added row at position: {row_id}")
                         
-                        # Broadcast to everyone else
+                        # Broadcast to everyone
                         await self.broadcast({
                             "type": "add_row",
                             "rowId": row_id,
-                            "userId": user_id
+                            "userId": user_id,
+                            "operationId": operation_id
                         })
             
             except WebSocketDisconnect:

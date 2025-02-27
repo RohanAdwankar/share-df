@@ -13,10 +13,12 @@ function editorApp(isCollaborative) {
         userName: `User ${Math.floor(Math.random() * 1000)}`,
         userColor: null,
         isConnected: false,
+        recentOperations: {}, // Add this to track operations
         
         // Initialize the application
         async init() {
             this.userColor = this.getRandomColor();
+            this.recentOperations = {}; // Add this to track operations
             await this.loadData();
             this.initializeTable();
             
@@ -154,16 +156,26 @@ function editorApp(isCollaborative) {
             }
         },
         
-        // Add a new column to the table
+        // Fix the addNewColumn method to prevent double creation
         addNewColumn() {
             this.columnCount++;
             const newColumnName = `New Column ${this.columnCount}`;
+            
+            // Create a unique ID for this operation to track our own operations
+            const operationId = `col_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
             
             this.table.addColumn({
                 title: newColumnName,
                 field: newColumnName,
                 editor: true,
-                headerClick: (e, column) => this.editColumnHeader(e, column)
+                headerClick: (e, column) => this.editColumnHeader(e, column),
+                cellMouseEnter: (e, cell) => {
+                    if (this.isCollaborative && this.isConnected) {
+                        const row = cell.getRow().getPosition();
+                        const column = cell.getColumn().getField();
+                        this.sendCursorPosition(row, column);
+                    }
+                }
             }, false);
             
             // Broadcast the column addition to other collaborators
@@ -171,18 +183,31 @@ function editorApp(isCollaborative) {
                 console.log(`Broadcasting add column: ${newColumnName}`);
                 this.socket.send(JSON.stringify({
                     type: "add_column",
-                    columnName: newColumnName
+                    columnName: newColumnName,
+                    operationId: operationId  // Include operation ID
                 }));
+                
+                // Store in recent operations to avoid duplicating our own changes
+                this.recentOperations = this.recentOperations || {};
+                this.recentOperations[operationId] = true;
+                
+                // Clean up old operations after 5 seconds
+                setTimeout(() => {
+                    delete this.recentOperations[operationId];
+                }, 5000);
             }
         },
         
-        // Add a new row to the table
+        // Fix the addNewRow method similarly
         addNewRow() {
             const columns = this.table.getColumns();
             const newRow = {};
             columns.forEach(column => {
                 newRow[column.getField()] = '';
             });
+            
+            // Create a unique ID for this operation
+            const operationId = `row_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
             
             // Add row to our table
             const addedRow = this.table.addRow(newRow);
@@ -193,8 +218,18 @@ function editorApp(isCollaborative) {
                 console.log(`Broadcasting add row at position: ${rowId}`);
                 this.socket.send(JSON.stringify({
                     type: "add_row",
-                    rowId: rowId
+                    rowId: rowId,
+                    operationId: operationId
                 }));
+                
+                // Store in recent operations to avoid duplicating our own changes
+                this.recentOperations = this.recentOperations || {};
+                this.recentOperations[operationId] = true;
+                
+                // Clean up old operations after 5 seconds
+                setTimeout(() => {
+                    delete this.recentOperations[operationId];
+                }, 5000);
             }
         },
         
@@ -317,6 +352,12 @@ function editorApp(isCollaborative) {
         handleWebSocketMessage(message) {
             console.log("Received message:", message);
             
+            // Check if this is our own operation that we need to ignore
+            if (message.operationId && this.recentOperations && this.recentOperations[message.operationId]) {
+                console.log(`Ignoring our own operation: ${message.operationId}`);
+                return;
+            }
+            
             switch (message.type) {
                 case "init":
                     // Initialize with server-provided data
@@ -413,21 +454,34 @@ function editorApp(isCollaborative) {
                         console.log(`Received cell edit: [${rowId}, ${column}] = ${value}`);
                         
                         try {
-                            // Important: Force table update through direct cell setValue
-                            const cell = this.table.getCell(rowId, column);
-                            if (cell) {
-                                cell.setValue(value);
+                            // Try to find the row first
+                            const row = this.table.getRow(rowId);
+                            if (row) {
+                                const rowData = row.getData();
+                                rowData[column] = value;
+                                
+                                // Update the data
+                                this.table.updateData([rowData]);
+                                
+                                // Add visual feedback for the change
+                                setTimeout(() => {
+                                    try {
+                                        const cell = row.getCell(column);
+                                        if (cell && cell.getElement()) {
+                                            const element = cell.getElement();
+                                            element.classList.add("remote-edited-cell");
+                                            setTimeout(() => {
+                                                element.classList.remove("remote-edited-cell");
+                                            }, 2000);
+                                        }
+                                    } catch (e) {
+                                        console.error("Error highlighting edited cell:", e);
+                                    }
+                                }, 10);
+                                
                                 console.log(`Updated cell: [${rowId}, ${column}] to ${value}`);
                             } else {
-                                console.warn(`Could not find cell: [${rowId}, ${column}]`);
-                                
-                                // Fallback: manually update the data and redraw
-                                const rowData = this.table.getRow(rowId)?.getData();
-                                if (rowData) {
-                                    rowData[column] = value;
-                                    this.table.updateData([rowData]);
-                                    console.log(`Updated row data for row ${rowId}`);
-                                }
+                                console.warn(`Could not find row ${rowId}`);
                             }
                         } catch (e) {
                             console.error("Error updating cell:", e);
@@ -438,7 +492,7 @@ function editorApp(isCollaborative) {
                 case "cursor_move":
                     // Another user moved their cursor
                     if (message.userId !== this.userId && message.cursor) {
-                        this.updateCursor(message.userId, message.cursor);
+                        this.updateAbsoluteCursor(message.userId, message.cursor);
                     }
                     break;
                     
@@ -467,7 +521,7 @@ function editorApp(isCollaborative) {
                     
                 case "add_column":
                     // Another user added a column
-                    if (message.userId !== this.userId && message.columnName) {
+                    if (message.userId !== this.userId) {
                         console.log(`Adding column from remote: ${message.columnName}`);
                         
                         // Add the column to our table
@@ -475,7 +529,14 @@ function editorApp(isCollaborative) {
                             title: message.columnName,
                             field: message.columnName,
                             editor: true,
-                            headerClick: (e, column) => this.editColumnHeader(e, column)
+                            headerClick: (e, column) => this.editColumnHeader(e, column),
+                            cellMouseEnter: (e, cell) => {
+                                if (this.isCollaborative && this.isConnected) {
+                                    const row = cell.getRow().getPosition();
+                                    const column = cell.getColumn().getField();
+                                    this.sendCursorPosition(row, column);
+                                }
+                            }
                         }, false);
                         
                         // Update our column count to stay in sync
@@ -579,13 +640,13 @@ function editorApp(isCollaborative) {
         
         // Track mouse movement for cursor sharing
         trackMouseMovement() {
-            if (!this.isCollaborative || !this.socket === null) return;
+            if (!this.isCollaborative) return;
             
             let lastX = 0, lastY = 0;
             let throttled = false;
             
             document.addEventListener('mousemove', (e) => {
-                if (throttled || !this.isConnected) return;
+                if (throttled || !this.isConnected || !this.socket) return;
                 throttled = true;
                 
                 // Only send if cursor moved significantly
@@ -593,44 +654,59 @@ function editorApp(isCollaborative) {
                     lastX = e.clientX;
                     lastY = e.clientY;
                     
-                    // Send absolute cursor position (this was working before)
-                    this.socket.send(JSON.stringify({
-                        type: "cursor_move",
-                        cursor: {
-                            x: e.clientX,
-                            y: e.clientY
-                        }
-                    }));
-                    
-                    // Also check if cursor is over a cell for cell-based tracking
-                    const tableRect = document.getElementById("data-table").getBoundingClientRect();
-                    if (e.clientX >= tableRect.left && e.clientX <= tableRect.right &&
-                        e.clientY >= tableRect.top && e.clientY <= tableRect.bottom) {
-                        
-                        // Try to find the cell under the cursor
-                        const cellElements = document.querySelectorAll('.tabulator-cell');
-                        for (const cellEl of cellElements) {
-                            const rect = cellEl.getBoundingClientRect();
-                            if (e.clientX >= rect.left && e.clientX <= rect.right &&
-                                e.clientY >= rect.top && e.clientY <= rect.bottom) {
-                                
-                                // Found the cell - get its row and column
-                                const row = this.table.getRowFromPosition(
-                                    this.table.rowManager.getRowFromElement(cellEl).getIndex()
-                                );
-                                const column = this.table.columnManager.getColumnFromElement(cellEl);
-                                
-                                if (row && column) {
-                                    this.sendCursorPosition(row.getPosition(), column.getField());
-                                }
-                                break;
+                    // Send absolute cursor position
+                    try {
+                        this.socket.send(JSON.stringify({
+                            type: "cursor_move",
+                            cursor: {
+                                x: e.clientX,
+                                y: e.clientY
                             }
-                        }
+                        }));
+                    } catch (e) {
+                        console.error("Error sending cursor position:", e);
                     }
+                    
+                    // Try to find cell under cursor for cell-based tracking
+                    this.tryCaptureTableCell(e.clientX, e.clientY);
                 }
                 
                 setTimeout(() => { throttled = false; }, 50);
             });
+        },
+        
+        // New helper method to find cells under the cursor position
+        tryCaptureTableCell(clientX, clientY) {
+            try {
+                const tableRect = document.getElementById("data-table").getBoundingClientRect();
+                if (clientX >= tableRect.left && clientX <= tableRect.right &&
+                    clientY >= tableRect.top && clientY <= tableRect.bottom) {
+                    
+                    const rows = this.table.getRows();
+                    for (let i = 0; i < rows.length; i++) {
+                        const row = rows[i];
+                        const cells = row.getCells();
+                        for (let j = 0; j < cells.length; j++) {
+                            const cell = cells[j];
+                            const el = cell.getElement();
+                            if (!el) continue;
+                            
+                            const rect = el.getBoundingClientRect();
+                            if (clientX >= rect.left && clientX <= rect.right &&
+                                clientY >= rect.top && clientY <= rect.bottom) {
+                                
+                                // Found the cell - get its row position and field name
+                                const rowPosition = row.getPosition();
+                                const field = cell.getColumn().getField();
+                                this.sendCursorPosition(rowPosition, field);
+                                return;
+                            }
+                        }
+                    }
+                }
+            } catch (e) {
+                console.error("Error finding cell under cursor:", e);
+            }
         },
         
         // Replace cursor movement tracking with cell-based position tracking
@@ -651,6 +727,61 @@ function editorApp(isCollaborative) {
             if (!this.collaborators[userId] || !cursor.x || !cursor.y) return;
             
             // Remove old cursor
+            document.querySelectorAll(`.user-cursor-absolute[data-user-id="${userId}"]`).forEach(el => el.remove());
+            
+            // Create cursor element
+            const cursorElement = document.createElement("div");
+            cursorElement.className = "user-cursor-absolute";
+            cursorElement.setAttribute("data-user-id", userId);
+            
+            const userName = this.collaborators[userId].name || "User";
+            const userColor = this.collaborators[userId].color || "#3b82f6";
+            
+            // Style the cursor element
+            cursorElement.style.position = "fixed";
+            cursorElement.style.left = `${cursor.x}px`;
+            cursorElement.style.top = `${cursor.y}px`;
+            cursorElement.style.width = "12px";
+            cursorElement.style.height = "12px";
+            cursorElement.style.backgroundColor = userColor;
+            cursorElement.style.borderRadius = "50%";
+            cursorElement.style.pointerEvents = "none";
+            cursorElement.style.zIndex = "9999";
+            cursorElement.style.transition = "transform 0.1s ease";
+            cursorElement.style.transform = "translate(-50%, -50%)";
+            
+            // Add name tag to cursor
+            const nameTag = document.createElement("div");
+            nameTag.className = "cursor-name";
+            nameTag.textContent = userName;
+            nameTag.style.backgroundColor = userColor;
+            nameTag.style.position = "absolute";
+            nameTag.style.top = "-20px";
+            nameTag.style.left = "0";
+            nameTag.style.color = "white";
+            nameTag.style.fontSize = "10px";
+            nameTag.style.padding = "2px 4px";
+            nameTag.style.borderRadius = "2px";
+            nameTag.style.whiteSpace = "nowrap";
+            nameTag.style.transform = "translateX(-50%)";
+            nameTag.style.userSelect = "none";
+            
+            cursorElement.appendChild(nameTag);
+            document.body.appendChild(cursorElement);
+            
+            // Remove cursor after inactivity
+            setTimeout(() => {
+                if (cursorElement.parentNode) {
+                    cursorElement.style.opacity = "0.5";
+                }
+            }, 5000);
+        },
+        
+        // Add a separate function for absolute cursor tracking
+        updateAbsoluteCursor(userId, cursor) {
+            if (!this.collaborators[userId] || !cursor.x || !cursor.y) return;
+            
+            // Remove any existing absolute cursors for this user
             document.querySelectorAll(`.user-cursor-absolute[data-user-id="${userId}"]`).forEach(el => el.remove());
             
             // Create cursor element
@@ -733,18 +864,30 @@ function editorApp(isCollaborative) {
         },
         
         // Add method to highlight a cell when another user is hovering over it
-        highlightCellForUser(userId, row, column) {
+        highlightCellForUser(userId, rowPosition, colField) {
             if (!this.collaborators[userId]) return;
             
-            // Remove any existing cursor indicators
+            // Remove any existing cursor indicators for this user
             document.querySelectorAll(`.user-cursor[data-user-id="${userId}"]`).forEach(el => el.remove());
             
             try {
-                // Find the cell
-                const cell = this.table.getCell(row, column);
-                if (!cell || !cell.getElement()) return;
+                // Get row using getRows() which is more reliable
+                const rows = this.table.getRows();
+                if (!rows || rowPosition >= rows.length) {
+                    console.warn(`Could not find row at position ${rowPosition}`);
+                    return;
+                }
+                
+                const row = rows[rowPosition];
+                if (!row) return;
+                
+                // Get cell using row.getCell() which is the recommended way
+                const cell = row.getCell(colField);
+                if (!cell || !cell.getElement) return;
                 
                 const cellElement = cell.getElement();
+                if (!cellElement) return;
+                
                 const cellRect = cellElement.getBoundingClientRect();
                 const userName = this.collaborators[userId].name || "User";
                 const userColor = this.collaborators[userId].color || "#3b82f6";
