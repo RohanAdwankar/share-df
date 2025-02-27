@@ -59,6 +59,11 @@ function editorApp(isCollaborative) {
             
             const self = this; // Store reference to 'this' for callbacks
             
+            console.log(`Initializing table with ${this.tableData.length} rows`);
+            
+            // Add row numbering for debugging
+            const debugRowNumbers = true;
+            
             // Define common cell callbacks for all columns
             const cellCallbacks = {
                 // When user hovers over a cell, track it for other users
@@ -67,6 +72,11 @@ function editorApp(isCollaborative) {
                     
                     const row = cell.getRow().getPosition();
                     const column = cell.getColumn().getField();
+                    
+                    // Log the coordinates to debug any index mismatches
+                    if (debugRowNumbers) {
+                        console.debug(`Cell hover at row position ${row}, column ${column}, content: ${cell.getValue()}`);
+                    }
                     
                     // Send hover position to server with cell coordinates
                     self.sendCursorPosition(row, column);
@@ -198,18 +208,31 @@ function editorApp(isCollaborative) {
                 newRow[column.getField()] = '';
             });
             
-            // Add row to our table
-            const addedRow = this.table.addRow(newRow);
-            const rowId = addedRow.getPosition();
-            
-            // Broadcast the row addition to other collaborators
-            if (this.isCollaborative && this.isConnected) {
-                console.log(`Broadcasting add row at position: ${rowId} with ID ${this._lastActionId}`);
-                this.socket.send(JSON.stringify({
-                    type: "add_row",
-                    rowId: rowId,
-                    actionId: this._lastActionId
-                }));
+            try {
+                // First, get the current row count for position reference
+                const initialRowCount = this.table.getRows().length;
+                console.log(`Current row count before addition: ${initialRowCount}`);
+                
+                // Add the row directly to the data
+                const currentData = this.table.getData();
+                currentData.push(newRow);
+                this.table.setData(currentData);
+                
+                // Get the new position (should be the last row)
+                const rowPosition = this.table.getRows().length - 1;
+                console.log(`Added new row at position: ${rowPosition}`);
+                
+                // Broadcast the row addition to other collaborators
+                if (this.isCollaborative && this.isConnected) {
+                    console.log(`Broadcasting add row at position: ${rowPosition} with ID ${this._lastActionId}`);
+                    this.socket.send(JSON.stringify({
+                        type: "add_row",
+                        rowId: rowPosition,
+                        actionId: this._lastActionId
+                    }));
+                }
+            } catch (e) {
+                console.error("Exception in addNewRow:", e);
             }
         },
         
@@ -537,17 +560,24 @@ function editorApp(isCollaborative) {
                         const column = message.column;
                         const value = message.value;
                         
-                        console.log(`Received cell edit: [${rowId}, ${column}] = ${value}`);
+                        console.log(`Received cell edit from ${message.userId}: [${rowId}, ${column}] = ${value}`);
                         
                         try {
                             let success = false;
                             
-                            // APPROACH 1: Direct DOM update - most reliable
+                            // APPROACH 1: Direct DOM update - most reliable for visual updates
                             try {
-                                // Find cell by its DOM position
                                 const cellElements = document.querySelectorAll(`.tabulator-cell[tabulator-field="${column}"]`);
-                                if (cellElements && rowId < cellElements.length) {
-                                    const cellElement = cellElements[rowId];
+                                
+                                // Log to help diagnose any issues
+                                console.log(`Found ${cellElements.length} cells with field ${column}, trying to update index ${rowId}`);
+                                
+                                // Make sure we have enough cells and the rowId is valid
+                                if (cellElements && cellElements.length > 0) {
+                                    // Ensure we're within bounds
+                                    const safeRowId = Math.min(rowId, cellElements.length - 1);
+                                    const cellElement = cellElements[safeRowId];
+                                    
                                     if (cellElement) {
                                         // Update the visual display directly
                                         cellElement.innerText = value;
@@ -555,13 +585,13 @@ function editorApp(isCollaborative) {
                                         setTimeout(() => {
                                             cellElement.style.backgroundColor = "";
                                         }, 1000);
-                                        console.log(`Updated cell [${rowId}, ${column}] using direct DOM method`);
+                                        console.log(`Updated cell display [${safeRowId}, ${column}] = ${value}`);
                                         success = true;
                                         
-                                        // Also update the underlying data model
+                                        // Also update the underlying data model to keep in sync
                                         const allData = this.table.getData();
-                                        if (rowId < allData.length) {
-                                            allData[rowId][column] = value;
+                                        if (safeRowId < allData.length) {
+                                            allData[safeRowId][column] = value;
                                         }
                                     }
                                 }
@@ -569,42 +599,26 @@ function editorApp(isCollaborative) {
                                 console.warn("Error with direct DOM update:", e);
                             }
                             
-                            // APPROACH 2: Update row data without using updateData method
+                            // APPROACH 2: Update data model directly if DOM update failed
                             if (!success) {
                                 try {
-                                    // Get data
                                     const allData = this.table.getData();
-                                    if (rowId < allData.length) {
+                                    // Ensure rowId is within bounds
+                                    const safeRowId = Math.min(rowId, allData.length - 1);
+                                    
+                                    if (safeRowId >= 0) {
                                         // Update data in our model directly
-                                        allData[rowId][column] = value;
+                                        allData[safeRowId][column] = value;
                                         
-                                        // Instead of using updateData which has issues, redraw the whole table
+                                        // Redraw the whole table
                                         this.table.setData(allData);
-                                        console.log(`Updated table data for row ${rowId} using full redraw`);
+                                        console.log(`Updated table data for row ${safeRowId} using full redraw`);
                                         success = true;
+                                    } else {
+                                        console.warn(`Row index ${rowId} is out of bounds (max index: ${allData.length - 1})`);
                                     }
                                 } catch (e) {
                                     console.warn("Error with data model update:", e);
-                                }
-                            }
-                            
-                            // APPROACH 3: Fallback for Tabulator API - less reliable
-                            if (!success) {
-                                try {
-                                    // Try to get the row using the getRows() method
-                                    const rows = this.table.getRows();
-                                    if (rows && rowId < rows.length) {
-                                        const row = rows[rowId];
-                                        if (row) {
-                                            row.update({
-                                                [column]: value
-                                            });
-                                            console.log(`Updated row ${rowId} using row.update()`);
-                                            success = true;
-                                        }
-                                    }
-                                } catch (e) {
-                                    console.warn("Error using row.update():", e);
                                 }
                             }
                             
@@ -690,31 +704,25 @@ function editorApp(isCollaborative) {
                                 newRow[column.getField()] = '';
                             });
                             
-                            // Add the row to our table
-                            this.table.addRow(newRow)
-                                .then(row => {
-                                    console.log(`Successfully added new row at position ${row.getPosition()}`);
-                                })
-                                .catch(err => {
-                                    console.error("Error adding row:", err);
-                                    // Try alternative method
-                                    const currentData = this.table.getData();
-                                    currentData.push(newRow);
-                                    this.table.setData(currentData);
-                                    console.log("Added row by updating full dataset");
-                                });
+                            // Add the row to our table using the simplest approach
+                            const currentData = this.table.getData();
+                            currentData.push(newRow); // Add to the end
+                            
+                            // Update the entire table data which is more reliable
+                            this.table.setData(currentData);
+                            console.log(`Added row by updating full dataset, now ${currentData.length} rows`);
                             
                             this.showToast(`${this.collaborators[message.userId]?.name || 'Someone'} added a new row`);
                         } catch (e) {
                             console.error("Failed to add row:", e);
-                            // Last resort - add row by modifying data array directly
+                            
+                            // Super last resort - if all else fails, reload data
                             try {
-                                const currentData = this.table.getData();
-                                currentData.push(newRow);
-                                this.table.setData(currentData);
-                                console.log("Added row by updating full dataset (fallback)");
+                                this.loadData().then(() => {
+                                    console.log("Reloaded data after row addition failure");
+                                });
                             } catch (e2) {
-                                console.error("All row addition attempts failed:", e2);
+                                console.error("All row addition recovery attempts failed:", e2);
                             }
                         }
                     }
@@ -838,6 +846,7 @@ function editorApp(isCollaborative) {
                     for (let i = 0; i < rows.length; i++) {
                         const row = rows[i];
                         const cells = row.getCells();
+                        
                         for (let j = 0; j < cells.length; j++) {
                             const cell = cells[j];
                             const el = cell.getElement();
@@ -850,6 +859,7 @@ function editorApp(isCollaborative) {
                                 // Found the cell - get its row position and field name
                                 const rowPosition = row.getPosition();
                                 const field = cell.getColumn().getField();
+                                
                                 this.sendCursorPosition(rowPosition, field);
                                 return;
                             }
@@ -875,7 +885,7 @@ function editorApp(isCollaborative) {
         },
         
         // Update the display of a collaborator's cursor
-        updateCursor(userId, cursor) {
+        updateAbsoluteCursor(userId, cursor) {
             if (!this.collaborators[userId] || !cursor.x || !cursor.y) return;
             
             // Remove old cursor
@@ -929,92 +939,6 @@ function editorApp(isCollaborative) {
             }, 5000);
         },
         
-        // Add a separate function for absolute cursor tracking
-        updateAbsoluteCursor(userId, cursor) {
-            if (!this.collaborators[userId] || !cursor.x || !cursor.y) return;
-            
-            // Remove any existing absolute cursors for this user
-            document.querySelectorAll(`.user-cursor-absolute[data-user-id="${userId}"]`).forEach(el => el.remove());
-            
-            // Create cursor element
-            const cursorElement = document.createElement("div");
-            cursorElement.className = "user-cursor-absolute";
-            cursorElement.setAttribute("data-user-id", userId);
-            
-            const userName = this.collaborators[userId].name || "User";
-            const userColor = this.collaborators[userId].color || "#3b82f6";
-            
-            // Style the cursor element
-            cursorElement.style.position = "fixed";
-            cursorElement.style.left = `${cursor.x}px`;
-            cursorElement.style.top = `${cursor.y}px`;
-            cursorElement.style.width = "12px";
-            cursorElement.style.height = "12px";
-            cursorElement.style.backgroundColor = userColor;
-            cursorElement.style.borderRadius = "50%";
-            cursorElement.style.pointerEvents = "none";
-            cursorElement.style.zIndex = "9999";
-            cursorElement.style.transition = "transform 0.1s ease";
-            cursorElement.style.transform = "translate(-50%, -50%)";
-            
-            // Add name tag to cursor
-            const nameTag = document.createElement("div");
-            nameTag.className = "cursor-name";
-            nameTag.textContent = userName;
-            nameTag.style.backgroundColor = userColor;
-            nameTag.style.position = "absolute";
-            nameTag.style.top = "-20px";
-            nameTag.style.left = "0";
-            nameTag.style.color = "white";
-            nameTag.style.fontSize = "10px";
-            nameTag.style.padding = "2px 4px";
-            nameTag.style.borderRadius = "2px";
-            nameTag.style.whiteSpace = "nowrap";
-            nameTag.style.transform = "translateX(-50%)";
-            nameTag.style.userSelect = "none";
-            
-            cursorElement.appendChild(nameTag);
-            document.body.appendChild(cursorElement);
-            
-            // Remove cursor after inactivity
-            setTimeout(() => {
-                if (cursorElement.parentNode) {
-                    cursorElement.style.opacity = "0.5";
-                }
-            }, 5000);
-        },
-        
-        // Add a method to send table structure updates
-        sendTableUpdate(data) {
-            if (!this.isCollaborative || !this.isConnected) return;
-            
-            console.log("Sending table update");
-            
-            // Only send the structure, not all data (could be too large)
-            const columnInfo = this.table.getColumns().map(col => ({
-                field: col.getField(),
-                title: col.getDefinition().title
-            }));
-            
-            this.socket.send(JSON.stringify({
-                type: "table_structure",
-                columns: columnInfo,
-                rowCount: data.length
-            }));
-        },
-        
-        // Add a method to send column reordering information
-        sendColumnReorder(columnOrder) {
-            if (!this.isCollaborative || !this.isConnected) return;
-            
-            console.log("Sending column reorder:", columnOrder);
-            
-            this.socket.send(JSON.stringify({
-                type: "column_reorder",
-                columns: columnOrder
-            }));
-        },
-        
         // Add method to highlight a cell when another user is hovering over it
         highlightCellForUser(userId, rowPosition, colField) {
             if (!this.collaborators[userId]) return;
@@ -1023,19 +947,31 @@ function editorApp(isCollaborative) {
             document.querySelectorAll(`.user-cursor[data-user-id="${userId}"]`).forEach(el => el.remove());
             
             try {
-                // Find the cell by direct DOM reference (more reliable than using Tabulator API)
-                const cellElements = document.querySelectorAll(`.tabulator-cell[tabulator-field="${colField}"]`);
-                let targetCell = null;
+                console.log(`Highlighting cell for user ${userId} at row ${rowPosition}, column ${colField}`);
                 
-                // Find the cell at the correct position (accounting for header)
-                if (cellElements && cellElements.length > rowPosition) {
-                    targetCell = cellElements[rowPosition];
+                // Find the cell by direct DOM reference (more reliable than Tabulator API)
+                const cellElements = document.querySelectorAll(`.tabulator-cell[tabulator-field="${colField}"]`);
+                
+                // Debug output to help trace the issue
+                console.log(`Found ${cellElements.length} cells with field ${colField}`);
+                
+                if (!cellElements || cellElements.length === 0) {
+                    console.warn(`No cells found with field ${colField}`);
+                    return;
                 }
+                
+                // Get target cell - this is the key fix: rowPosition is the index in the DOM
+                // Ensure we don't go out of bounds
+                const safeRowPosition = Math.min(rowPosition, cellElements.length - 1);
+                const targetCell = cellElements[safeRowPosition];
                 
                 if (!targetCell) {
                     console.warn(`Could not find cell at row ${rowPosition}, column ${colField}`);
                     return;
                 }
+                
+                // Debug info
+                console.log(`Found target cell: ${targetCell.textContent}`);
                 
                 const cellRect = targetCell.getBoundingClientRect();
                 const userName = this.collaborators[userId].name || "User";
