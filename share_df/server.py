@@ -187,6 +187,18 @@ class ShareServer:
                             try:
                                 row_index = int(row_id) if isinstance(row_id, str) and row_id.isdigit() else row_id
                                 if isinstance(row_index, int) and 0 <= row_index < len(self.df):
+                                    # Explicitly convert the value to match the column type if possible
+                                    try:
+                                        existing_val = self.df.at[row_index, column]
+                                        if isinstance(existing_val, (int, float)) and not isinstance(value, bool):
+                                            if isinstance(existing_val, int):
+                                                value = int(float(value)) if value else 0
+                                            else:
+                                                value = float(value) if value else 0.0
+                                    except (ValueError, TypeError):
+                                        # If conversion fails, use the value as is
+                                        pass
+                                        
                                     self.df.at[row_index, column] = value
                                     print(f"Updated DataFrame at [{row_index}, {column}] = {value}")
                             except Exception as e:
@@ -201,17 +213,69 @@ class ShareServer:
                             "userId": user_id
                         })
                         
-                    elif message_type == "cursor_move":
-                        # User moved their cursor
-                        if user_id in self.collaborators:
-                            self.collaborators[user_id].cursor = message.get("cursor", {"row": -1, "col": -1})
+                    elif message_type == "cursor_position":
+                        # User moved to a specific cell - this replaces cursor_move with cell tracking
+                        position = message.get("position", {})
+                        if user_id in self.collaborators and position:
+                            # Update user's cursor position
+                            self.collaborators[user_id].cursor = position
                             
-                            # Broadcast cursor position to everyone else
+                            # Broadcast to everyone else
                             await self.broadcast({
-                                "type": "cursor_move",
-                                "userId": user_id,
-                                "cursor": self.collaborators[user_id].cursor
+                                "type": "cursor_position",
+                                "position": position,
+                                "userId": user_id
                             }, exclude=user_id)
+                        
+                    elif message_type == "table_structure":
+                        # User changed table structure (added columns, rows, etc)
+                        columns = message.get("columns", [])
+                        row_count = message.get("rowCount", 0)
+                        
+                        # Broadcast to everyone else
+                        await self.broadcast({
+                            "type": "table_structure",
+                            "columns": columns,
+                            "rowCount": row_count,
+                            "userId": user_id
+                        }, exclude=user_id)
+                        
+                    elif message_type == "column_reorder":
+                        # User reordered columns
+                        columns = message.get("columns", [])
+                        
+                        # Broadcast to everyone else
+                        await self.broadcast({
+                            "type": "column_reorder",
+                            "columns": columns,
+                            "userId": user_id
+                        }, exclude=user_id)
+                    
+                    elif message_type == "add_column":
+                        # User added a column
+                        column_name = message.get("columnName", "")
+                        
+                        print(f"User {user_id} added column: {column_name}")
+                        
+                        # Broadcast to everyone else
+                        await self.broadcast({
+                            "type": "add_column",
+                            "columnName": column_name,
+                            "userId": user_id
+                        })
+                        
+                    elif message_type == "add_row":
+                        # User added a row
+                        row_id = message.get("rowId", -1)
+                        
+                        print(f"User {user_id} added row at position: {row_id}")
+                        
+                        # Broadcast to everyone else
+                        await self.broadcast({
+                            "type": "add_row",
+                            "rowId": row_id,
+                            "userId": user_id
+                        })
             
             except WebSocketDisconnect:
                 print(f"WebSocket disconnected: {user_id}")

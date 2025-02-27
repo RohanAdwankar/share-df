@@ -391,18 +391,56 @@ body {
 /* User cursor */
 .user-cursor {
     position: absolute;
-    width: 2px;
-    height: 18px;
-    z-index: 999;
     pointer-events: none;
+    z-index: 100;
+    box-sizing: border-box;
+    transition: all 0.2s ease;
 }
 
+/* User cursor for absolute positioning (mouse tracking) */
+.user-cursor-absolute {
+    position: fixed;
+    pointer-events: none;
+    z-index: 9999;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    transform: translate(-50%, -50%);
+    transition: left 0.1s ease, top 0.1s ease, opacity 0.5s ease;
+}
+
+/* Shared cursor name tag styling */
 .cursor-name {
     position: absolute;
-    top: -18px;
-    left: 0;
+    top: -22px;
+    left: 50%;
+    transform: translateX(-50%);
     font-size: 10px;
-    padding: 2px 4px;
-    border-radius: 2px;
+    padding: 2px 6px;
+    border-radius: 3px;
     white-space: nowrap;
+    z-index: 101;
+    color: white;
+    font-weight: bold;
+    user-select: none;
+}
+
+/* Highlight cell when edited */
+.cell-edited-highlight {
+    animation: cell-highlight 2s ease-out;
+}
+
+@keyframes cell-highlight {
+    0% { background-color: rgba(59, 130, 246, 0.4); }
+    100% { background-color: transparent; }
+}
+
+/* Animation for newly edited cells */
+@keyframes highlight-pulse {
+    0% { background-color: rgba(59, 130, 246, 0.5); }
+    100% { background-color: transparent; }
+}
+
+.remote-edited-cell {
+    animation: highlight-pulse 1.5s ease-out;
 }
