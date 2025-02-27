@@ -60,7 +60,7 @@ class ShareServer:
         @self.app.get("/")
         async def root(request: Request):
             return self.templates.TemplateResponse(
-                "editor-alpine.html",  # Using the Alpine.js template
+                "editor.html",
                 {"request": request, "collaborative": self.collaborative_mode}
             )
             

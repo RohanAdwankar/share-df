@@ -1,616 +1,1038 @@
-let table;
-let columnCount = 0;
-let socket;
-let userId;
-let collaborators = {};
-let cellEditors = {};
-let userName = "User " + Math.floor(Math.random() * 1000);
-let userColor = getRandomColor();
-let isConnected = false;
-
-function showLoading() {
-    document.getElementById('loading-overlay').style.display = 'flex';
-}
-
-function hideLoading() {
-    document.getElementById('loading-overlay').style.display = 'none';
-}
-
-function showToast(message, type = 'success') {
-    const toast = document.createElement('div');
-    toast.className = `toast ${type}`;
-    toast.textContent = message;
-    document.body.appendChild(toast);
-    setTimeout(() => toast.remove(), 2300);
-}
-
-function addNewColumn() {
-    columnCount++;
-    const newColumnName = `New Column ${columnCount}`;
-    
-    table.addColumn({
-        title: newColumnName,
-        field: newColumnName,
-        editor: true,
-        headerClick: function(e, column) {
-            editColumnHeader(e, column);
-        }
-    }, false);
-}
-
-function addNewRow() {
-    const columns = table.getColumns();
-    const newRow = {};
-    columns.forEach(column => {
-        newRow[column.getField()] = '';
-    });
-    table.addRow(newRow);
-}
-
-function editColumnHeader(e, column) {
-    e.stopPropagation();
-
-    const currentTitle = column.getDefinition().title;
-    const oldField = column.getField();
-    
-    const input = document.createElement("input");
-    input.value = currentTitle;
-    input.style.width = "100%";
-    input.style.boxSizing = "border-box";
-    input.style.padding = "5px";
-    input.style.border = "2px solid #3b82f6";
-    input.style.borderRadius = "4px";
-    
-    const headerElement = e.target.closest(".tabulator-col");
-    const titleElement = headerElement.querySelector(".tabulator-col-title");
-    titleElement.innerHTML = "";
-    titleElement.appendChild(input);
-    input.focus();
-    
-    const finishEdit = function(newValue) {
-        if (newValue && newValue !== oldField) {
-            const allData = table.getData();
-            const columnDefinitions = table.getColumnDefinitions();
+function editorApp(isCollaborative) {
+    return {
+        // State variables
+        table: null,
+        isCollaborative,
+        loading: true,
+        loadingText: 'Loading data...',
+        tableData: [],
+        columnCount: 0,
+        socket: null,
+        userId: null,
+        collaborators: {},
+        userName: `User ${Math.floor(Math.random() * 1000)}`,
+        userColor: null,
+        isConnected: false,
+        _messageCache: {},
+        _lastActionId: null,
+        
+        // Initialize the application
+        async init() {
+            this.userColor = this.getRandomColor();
+            await this.loadData();
+            this.initializeTable();
             
-            const newColumnDefinitions = columnDefinitions.map(def => {
-                if (def.field === oldField) {
-                    return {
-                        ...def,
-                        title: newValue,
-                        field: newValue
-                    };
-                }
-                return def;
-            });
-
-            const updatedData = allData.map(row => {
-                const newRow = {...row};
-                newRow[newValue] = row[oldField];
-                delete newRow[oldField];
-                return newRow;
-            });
-
-            table.setColumns(newColumnDefinitions);
-            table.setData(updatedData);
-        } else {
-            titleElement.innerHTML = currentTitle;
-        }
-    };
-    
-    input.addEventListener("blur", function() {
-        finishEdit(this.value);
-    });
-    
-    input.addEventListener("keydown", function(e) {
-        if (e.key === "Enter") {
-            finishEdit(this.value);
-            this.blur();
-        }
-        if (e.key === "Escape") {
-            titleElement.innerHTML = currentTitle;
-            this.blur();
-        }
-    });
-}
-
-async function shutdownServer() {
-    if (confirm('Are you sure you want to send the data back and close the editor connection?')) {
-        try {
-            await saveData();
-            const response = await fetch('/shutdown', {method: 'POST'});
-            if (response.ok) {
-                showToast('Server shutting down...', 'success');
-                setTimeout(() => {
-                    if (window.parent !== window) {
-                        window.parent.document.querySelector('iframe').remove();
-                    } else {
-                        window.close();
-                    }
-                }, 1000);
-            } else {
-                throw new Error('Shutdown request failed');
+            if (this.isCollaborative) {
+                this.setupWebSocket();
             }
-        } catch (e) {
-            console.error('Error shutting down:', e);
-            showToast('Error shutting down server', 'error');
-        }
-    }
-}
-
-async function loadData() {
-    try {
-        showLoading();
-        const response = await fetch('/data');
-        const data = await response.json();
-        if (!data || data.length === 0) {
-            hideLoading();
-            showToast('No data available', 'error');
-            return [];
-        }
-        document.getElementById('loading-text').textContent = `Preparing ${data.length.toLocaleString()} rows...`;
-        return data;
-    } catch (e) {
-        console.error('Error loading data:', e);
-        showToast('Error loading data', 'error');
-        hideLoading();
-        return [];
-    }
-}
-
-async function saveData() {
-    try {
-        const data = table.getData();
-        await fetch('/update_data', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({data}),
-        });
-        showToast('Changes saved successfully!');
-    } catch (e) {
-        console.error('Error saving data:', e);
-        showToast('Error saving data', 'error');
-    }
-}
-
-function getRandomColor() {
-    const colors = [
-        "#3b82f6", "#ef4444", "#10b981", "#f59e0b", 
-        "#8b5cf6", "#ec4899", "#06b6d4", "#84cc16"
-    ];
-    return colors[Math.floor(Math.random() * colors.length)];
-}
-
-function setupWebSocket() {
-    if (!isCollaborative) return;
-    
-    // Create WebSocket connection
-    const protocol = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
-    const wsUrl = `${protocol}${window.location.host}/ws`;
-    
-    socket = new WebSocket(wsUrl);
-    
-    socket.onopen = function(e) {
-        console.log("WebSocket connection established");
-        isConnected = true;
+        },
         
-        // Ask for user name when first connecting
-        const name = prompt("Enter your name for collaboration:", userName) || userName;
-        userName = name;
+        // Load data from the server
+        async loadData() {
+            try {
+                this.loading = true;
+                const response = await fetch('/data');
+                const data = await response.json();
+                if (!data || data.length === 0) {
+                    this.showToast('No data available', 'error');
+                    return [];
+                }
+                this.loadingText = `Preparing ${data.length.toLocaleString()} rows...`;
+                this.tableData = data;
+                return data;
+            } catch (e) {
+                console.error('Error loading data:', e);
+                this.showToast('Error loading data', 'error');
+                return [];
+            } finally {
+                this.loading = false;
+            }
+        },
         
-        // Send user info to server
-        socket.send(JSON.stringify({
-            type: "update_user",
-            name: userName,
-            color: userColor
-        }));
-    };
-    
-    socket.onmessage = function(event) {
-        handleWebSocketMessage(JSON.parse(event.data));
-    };
-    
-    socket.onclose = function(event) {
-        console.log("WebSocket connection closed");
-        isConnected = false;
-        
-        if (event.wasClean) {
-            showToast(`Connection closed: ${event.reason}`, 'error');
-        } else {
-            // Connection died
-            showToast("Connection lost. Please refresh the page.", 'error');
-        }
-    };
-    
-    socket.onerror = function(error) {
-        console.error("WebSocket error:", error);
-        showToast("WebSocket error occurred", 'error');
-    };
-}
-
-function handleWebSocketMessage(message) {
-    console.log("Received message:", message);
-    
-    switch (message.type) {
-        case "init":
-            // Initialize with server-provided data
-            userId = message.userId;
+        // Initialize the Tabulator table
+        initializeTable() {
+            if (this.tableData.length === 0) return;
             
-            // Add existing collaborators
-            message.collaborators.forEach(user => {
-                if (user.id !== userId) {
-                    collaborators[user.id] = user;
+            const self = this; // Store reference to 'this' for callbacks
+            
+            // Apply callbacks to all columns
+            const columns = Object.keys(this.tableData[0]).map(key => ({
+                title: key,
+                field: key,
+                editor: true,
+                headerClick: (e, column) => this.editColumnHeader(e, column),
+                cellMouseEnter: function(e, cell) {
+                    if (!self.isCollaborative || !self.isConnected) return;
+                    
+                    // Convert 1-based to 0-based row position
+                    const row = cell.getRow().getPosition() - 1;
+                    const column = cell.getColumn().getField();
+                    
+                    self.sendCursorPosition(row, column);
+                }
+            }));
+            
+            // Initialize table with the enhanced columns
+            this.table = new Tabulator("#data-table", {
+                data: this.tableData,
+                columns: columns,
+                layout: "fitColumns",
+                movableColumns: true,
+                history: true,
+                clipboard: true,
+                height: "100%",
+                reactiveData: true,
+                keybindings: {
+                    "copyToClipboard": "ctrl+67",
+                    "pasteFromClipboard": "ctrl+86",
+                    "undo": "ctrl+90",
+                    "redo": "ctrl+89"
+                },
+                cellEdited: function(cell) {
+                    // Convert 1-based to 0-based row position
+                    const row = cell.getRow().getPosition() - 1;
+                    const column = cell.getColumn().getField();
+                    const value = cell.getValue();
+                    
+                    // Update local data model
+                    self.tableData = self.table.getData();
+                    
+                    // Send to server
+                    if (self.isCollaborative && self.isConnected) {
+                        self.sendCellEdit(row, column, value);
+                    }
+                },
+                dataChanged: function(data) {
+                    // Capture structural changes to the table data
+                    if (self.isCollaborative && self.isConnected) {
+                        self.sendTableUpdate(data);
+                    }
+                },
+                columnMoved: function(column, columns) {
+                    // Capture column reordering
+                    if (self.isCollaborative && self.isConnected) {
+                        const columnOrder = columns.map(col => col.getField());
+                        self.sendColumnReorder(columnOrder);
+                    }
                 }
             });
             
-            updateCollaboratorsList();
-            break;
-            
-        case "user_joined":
-            showToast(`${message.name || "A new user"} joined the session`, 'success');
-            // Rest of handling remains the same
-            break;
-            
-        case "user_update":
-            // Update or add collaborator
-            if (message.user && message.user.id !== userId) {
-                collaborators[message.user.id] = message.user;
-                updateCollaboratorsList();
-                
-                // Only show toast for first update from a user
-                if (!document.querySelector(`.collaborator-badge[data-user-id="${message.user.id}"]`)) {
-                    showToast(`${message.user.name} joined the session`, 'success');
-                }
+            // Set up cell events for collaborative mode
+            if (this.isCollaborative) {
+                this.setupCellEvents();
             }
-            break;
-            
-        case "user_left":
-            // Remove collaborator
-            if (message.userId && collaborators[message.userId]) {
-                const userName = collaborators[message.userId].name;
-                delete collaborators[message.userId];
-                updateCollaboratorsList();
-                
-                // Remove any cursors for this user
-                document.querySelectorAll(`.user-cursor[data-user-id="${message.userId}"]`).forEach(el => el.remove());
-                
-                showToast(`${userName} left the session`, 'error');
+        },
+        
+        // Save data back to the server
+        async saveData() {
+            try {
+                if (!this.table) return;
+                const data = this.table.getData();
+                await fetch('/update_data', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({data}),
+                });
+                this.showToast('Changes saved successfully!');
+            } catch (e) {
+                console.error('Error saving data:', e);
+                this.showToast('Error saving data', 'error');
             }
-            break;
+        },
+        
+        // Add a new column to the table
+        addNewColumn() {
+            this._lastActionId = `col_${Date.now()}`;
             
-        case "cell_focus":
-            // Another user is focusing on a cell
-            if (message.userId !== userId) {
-                const cellId = message.cellId;
-                const [rowId, colField] = cellId.split("-");
-                
-                const cell = table.getCell(rowId, colField);
-                if (cell && cell.getElement()) {
-                    const userName = collaborators[message.userId]?.name || "User";
-                    const userColor = collaborators[message.userId]?.color || "#3b82f6";
-                    
-                    // Mark the cell as being edited
-                    cell.getElement().classList.add("cell-being-edited");
-                    cell.getElement().style.boxShadow = `0 0 0 2px ${userColor} inset`;
-                    
-                    // Add editor name
-                    const nameTag = document.createElement("div");
-                    nameTag.className = "editor-name";
-                    nameTag.textContent = userName;
-                    nameTag.style.backgroundColor = userColor;
-                    nameTag.style.color = "#ffffff"; // Ensure text is visible
-                    cell.getElement().appendChild(nameTag);
-                }
-            }
-            break;
+            this.columnCount++;
+            const newColumnName = `New Column ${this.columnCount}`;
             
-        case "cell_blur":
-            // User stopped editing a cell
-            if (message.userId !== userId) {
-                const cellId = message.cellId;
-                const [rowId, colField] = cellId.split("-");
-                
-                const cell = table.getCell(rowId, colField);
-                if (cell && cell.getElement()) {
-                    cell.getElement().classList.remove("cell-being-edited");
-                    cell.getElement().style.boxShadow = "";
-                    
-                    // Remove editor name
-                    const nameTag = cell.getElement().querySelector(".editor-name");
-                    if (nameTag) nameTag.remove();
-                }
-            }
-            break;
-            
-        case "cell_edit":
-            // Another user edited a cell - update immediately
-            if (message.userId !== userId) {
-                const rowId = message.rowId;
-                const column = message.column;
-                const value = message.value;
-                
-                console.log(`Received cell edit: [${rowId}, ${column}] = ${value}`);
-                
-                // Update the cell with the new value
-                try {
-                    // Try to find the cell directly
-                    const cell = table.getCell(rowId, column);
-                    if (cell) {
-                        // Use setValue to update cell (false = don't trigger events)
-                        cell.setValue(value, false);
-                    } else {
-                        // Fallback: update by row data (useful for newly added rows)
-                        const row = table.getRow(rowId);
-                        if (row) {
-                            let rowData = row.getData();
-                            rowData[column] = value;
-                            table.updateData([rowData]);
-                        } else {
-                            console.warn(`Could not find row ${rowId} to update cell`);
-                        }
+            this.table.addColumn({
+                title: newColumnName,
+                field: newColumnName,
+                editor: true,
+                headerClick: (e, column) => this.editColumnHeader(e, column),
+                cellMouseEnter: (e, cell) => {
+                    if (this.isCollaborative && this.isConnected) {
+                        // Convert 1-based to 0-based row position
+                        const row = cell.getRow().getPosition() - 1;
+                        const column = cell.getColumn().getField();
+                        this.sendCursorPosition(row, column);
                     }
-                } catch (e) {
-                    console.error("Error updating cell:", e);
                 }
-            }
-            break;
+            }, false);
             
-        case "cursor_move":
-            // Another user moved their cursor
-            if (message.userId !== userId && message.cursor) {
-                updateCursor(message.userId, message.cursor);
-            }
-            break;
-    }
-}
-
-function updateCursor(userId, cursor) {
-    if (!collaborators[userId]) return;
-    
-    // Remove old cursor
-    document.querySelectorAll(`.user-cursor[data-user-id="${userId}"]`).forEach(el => el.remove());
-    
-    // If cursor position is invalid, don't show it
-    if (cursor.row < 0 || cursor.col < 0) return;
-    
-    // Create cursor element
-    const cursorElement = document.createElement("div");
-    cursorElement.className = "user-cursor";
-    cursorElement.setAttribute("data-user-id", userId);
-    cursorElement.style.backgroundColor = collaborators[userId].color;
-    
-    // Add name tag to cursor
-    const nameTag = document.createElement("div");
-    nameTag.className = "cursor-name";
-    nameTag.textContent = collaborators[userId].name;
-    nameTag.style.backgroundColor = collaborators[userId].color;
-    cursorElement.appendChild(nameTag);
-    
-    // Calculate position based on cursor data
-    // This is a simplistic approach - real implementation would need more complex positioning
-    const tableRect = document.getElementById("data-table").getBoundingClientRect();
-    cursorElement.style.left = `${cursor.x}px`;
-    cursorElement.style.top = `${cursor.y}px`;
-    
-    // Add to DOM
-    document.body.appendChild(cursorElement);
-}
-
-function updateCollaboratorsList() {
-    if (!isCollaborative) return;
-    
-    const container = document.getElementById("collaborators-list");
-    const containerParent = document.getElementById("collaborators-container");
-    if (!container || !containerParent) return;
-    
-    container.innerHTML = "";
-    
-    const collaboratorCount = Object.keys(collaborators).length;
-    
-    // Only show the collaborators section if there are actually people
-    if (collaboratorCount === 0) {
-        containerParent.style.display = "none";
-        return;
-    } else {
-        containerParent.style.display = "flex";
-    }
-    
-    Object.values(collaborators).forEach(user => {
-        const badge = document.createElement("div");
-        badge.className = "collaborator-badge";
-        badge.setAttribute("data-user-id", user.id);
-        badge.style.backgroundColor = `${user.color}20`; // 20% opacity
-        badge.style.borderColor = user.color;
-        badge.style.color = user.color; // Text color matches user color
-        
-        const dot = document.createElement("div");
-        dot.className = "collaborator-dot";
-        dot.style.backgroundColor = user.color;
-        badge.appendChild(dot);
-        
-        badge.appendChild(document.createTextNode(user.name));
-        container.appendChild(badge);
-    });
-}
-
-function sendCellFocus(row, column) {
-    if (!isCollaborative || !isConnected) return;
-    
-    const cellId = `${row}-${column}`;
-    socket.send(JSON.stringify({
-        type: "cell_focus",
-        cellId: cellId
-    }));
-}
-
-function sendCellBlur(row, column) {
-    if (!isCollaborative || !isConnected) return;
-    
-    const cellId = `${row}-${column}`;
-    socket.send(JSON.stringify({
-        type: "cell_blur",
-        cellId: cellId
-    }));
-}
-
-function sendCellEdit(row, column, value) {
-    if (!isCollaborative || !isConnected) return;
-    
-    console.log(`Sending cell edit: [${row}, ${column}] = ${value}`);
-    
-    socket.send(JSON.stringify({
-        type: "cell_edit",
-        rowId: row,
-        column: column,
-        value: value
-    }));
-}
-
-function trackMouseMovement() {
-    if (!isCollaborative || !isConnected) return;
-    
-    let lastX = 0, lastY = 0;
-    let throttled = false;
-    
-    document.addEventListener('mousemove', function(e) {
-        if (throttled) return;
-        throttled = true;
-        
-        // Only send if cursor moved significantly
-        if (Math.abs(e.clientX - lastX) > 5 || Math.abs(e.clientY - lastY) > 5) {
-            lastX = e.clientX;
-            lastY = e.clientY;
-            
-            // Convert to cell-based positioning if possible
-            const tableRect = document.getElementById("data-table").getBoundingClientRect();
-            if (e.clientX >= tableRect.left && e.clientX <= tableRect.right &&
-                e.clientY >= tableRect.top && e.clientY <= tableRect.bottom) {
-                
-                // Send cursor position
-                socket.send(JSON.stringify({
-                    type: "cursor_move",
-                    cursor: {
-                        x: e.clientX,
-                        y: e.clientY
-                    }
+            // Broadcast the column addition to other collaborators
+            if (this.isCollaborative && this.isConnected) {
+                this.socket.send(JSON.stringify({
+                    type: "add_column",
+                    columnName: newColumnName,
+                    actionId: this._lastActionId
                 }));
             }
-        }
+        },
         
-        setTimeout(() => { throttled = false; }, 50);
-    });
-}
-
-async function initializeTable() {
-    try {
-        const data = await loadData();
-        if (!data || data.length === 0) {
-            console.error('No data received');
-            showToast('No data available', 'error');
-            return;
-        }
-
-        const columns = Object.keys(data[0]).map(key => ({
-            title: key,
-            field: key,
-            editor: true,
-            headerClick: function(e, column) {
-                editColumnHeader(e, column);
-            }
-        }));
-
-        table = new Tabulator("#data-table", {
-            data: data,
-            columns: columns,
-            layout: "fitColumns",
-            movableColumns: true,
-            history: true,
-            clipboard: true,
-            height: "100%",
-            keybindings: {
-                "copyToClipboard": "ctrl+67",
-                "pasteFromClipboard": "ctrl+86",
-                "undo": "ctrl+90",
-                "redo": "ctrl+89"
-            },
-            reactiveData: true, // Make data reactive
-        });
-        
-        // Hide loading overlay
-        hideLoading();
-        
-        // Initialize WebSocket connection for collaboration
-        if (isCollaborative) {
-            // First set up the table events
-            setupCellEvents();
+        // Add a new row to the table
+        addNewRow() {
+            this._lastActionId = `row_${Date.now()}`;
             
-            // Then connect via WebSocket
-            setupWebSocket();
-            trackMouseMovement();
-        }
-    } catch (e) {
-        console.error('Error initializing table:', e);
-        showToast('Error initializing table', 'error');
-        hideLoading();
-    }
-}
-
-async function cancelChanges() {
-    if (confirm('Are you sure you want to discard all changes and close the editor?')) {
-        try {
-            const response = await fetch('/cancel', {
-                method: 'POST'
+            const columns = this.table.getColumns();
+            const newRow = {};
+            columns.forEach(column => {
+                newRow[column.getField()] = '';
             });
             
-            if (response.ok) {
-                showToast('Discarding changes...', 'success');
-                setTimeout(() => {
-                    if (window.parent !== window) {
-                        window.parent.document.querySelector('iframe').remove();
-                    } else {
-                        window.close();
-                    }
-                }, 1000);
-            } else {
-                throw new Error('Cancel request failed');
+            // Add row to our table - using a simpler direct update for reliability
+            const currentData = this.table.getData();
+            currentData.push(newRow);
+            this.table.setData(currentData);
+            
+            // Get the position - it's the last row (0-based)
+            const rowPosition = currentData.length - 1;
+            
+            // Broadcast the row addition to other collaborators
+            if (this.isCollaborative && this.isConnected) {
+                this.socket.send(JSON.stringify({
+                    type: "add_row",
+                    rowId: rowPosition,
+                    actionId: this._lastActionId
+                }));
             }
-        } catch (e) {
-            console.error('Error canceling:', e);
-            showToast('Error canceling changes', 'error');
+        },
+        
+        // Edit column header
+        editColumnHeader(e, column) {
+            e.stopPropagation();
+
+            const currentTitle = column.getDefinition().title;
+            const oldField = column.getField();
+            
+            const input = document.createElement("input");
+            input.value = currentTitle;
+            input.style.width = "100%";
+            input.style.boxSizing = "border-box";
+            input.style.padding = "5px";
+            input.style.border = "2px solid #3b82f6";
+            input.style.borderRadius = "4px";
+            
+            const headerElement = e.target.closest(".tabulator-col");
+            const titleElement = headerElement.querySelector(".tabulator-col-title");
+            titleElement.innerHTML = "";
+            titleElement.appendChild(input);
+            input.focus();
+            
+            const finishEdit = (newValue) => {
+                if (newValue && newValue !== oldField) {
+                    const allData = this.table.getData();
+                    const columnDefinitions = this.table.getColumnDefinitions();
+                    
+                    const newColumnDefinitions = columnDefinitions.map(def => {
+                        if (def.field === oldField) {
+                            return {
+                                ...def,
+                                title: newValue,
+                                field: newValue
+                            };
+                        }
+                        return def;
+                    });
+
+                    const updatedData = allData.map(row => {
+                        const newRow = {...row};
+                        newRow[newValue] = row[oldField];
+                        delete newRow[oldField];
+                        return newRow;
+                    });
+
+                    this.table.setColumns(newColumnDefinitions);
+                    this.table.setData(updatedData);
+                } else {
+                    titleElement.innerHTML = currentTitle;
+                }
+            };
+            
+            input.addEventListener("blur", function() {
+                finishEdit(this.value);
+            });
+            
+            input.addEventListener("keydown", function(e) {
+                if (e.key === "Enter") {
+                    finishEdit(this.value);
+                    this.blur();
+                }
+                if (e.key === "Escape") {
+                    titleElement.innerHTML = currentTitle;
+                    this.blur();
+                }
+            });
+        },
+        
+        // Set up WebSocket connection for real-time collaboration
+        setupWebSocket() {
+            // First, clear any existing connection
+            if (this.socket) {
+                this.socket.onmessage = null;
+                this.socket.onclose = null;
+                this.socket.onerror = null;
+                this.socket.close();
+                this.socket = null;
+            }
+            
+            const protocol = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
+            const wsUrl = `${protocol}${window.location.host}/ws`;
+            
+            this.socket = new WebSocket(wsUrl);
+            
+            // Set flag to ensure we only ask for username once
+            let userNamePromptShown = false;
+            
+            this.socket.onopen = (e) => {
+                this.isConnected = true;
+                
+                // Ask for user name when first connecting, but only once
+                if (!userNamePromptShown) {
+                    userNamePromptShown = true;
+                    const name = prompt("Enter your name for collaboration:", this.userName) || this.userName;
+                    this.userName = name;
+                    
+                    // Send user info to server
+                    this.socket.send(JSON.stringify({
+                        type: "update_user",
+                        name: this.userName,
+                        color: this.userColor
+                    }));
+                }
+            };
+            
+            this.socket.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    this.handleWebSocketMessage(data);
+                } catch (e) {
+                    console.error("Error handling WebSocket message:", e);
+                }
+            };
+            
+            this.socket.onclose = (event) => {
+                this.isConnected = false;
+                
+                if (event.wasClean) {
+                    this.showToast(`Connection closed: ${event.reason}`, 'error');
+                } else {
+                    // Connection died
+                    this.showToast("Connection lost. Please refresh the page.", 'error');
+                }
+            };
+            
+            this.socket.onerror = (error) => {
+                console.error("WebSocket error:", error);
+                this.showToast("WebSocket error occurred", 'error');
+            };
+            
+            // Track mouse movement for cursor sharing
+            this.trackMouseMovement();
+        },
+        
+        // Simplified message deduplication
+        _deduplicateMessage(message) {
+            // Create a signature for this message to detect duplicates
+            let signature = `${message.type}:`;
+            
+            if (message.type === 'add_column') {
+                signature += message.columnName;
+            } else if (message.type === 'add_row') {
+                signature += message.rowId;
+            } else if (message.type === 'cell_edit') {
+                signature += `${message.rowId}:${message.column}:${message.value}`;
+            } else if (message.type === 'cursor_position') {
+                // Skip deduplication for cursor movements
+                return false;
+            } else {
+                return false;
+            }
+            
+            const now = Date.now();
+            
+            // Check if we've seen this message recently
+            if (this._messageCache[signature] && now - this._messageCache[signature] < 300) {
+                return true; // Duplicate found
+            }
+            
+            // Store this message in the cache
+            this._messageCache[signature] = now;
+            
+            // Clean up old cache entries - only if cache is getting large
+            if (Object.keys(this._messageCache).length > 100) {
+                const cutoff = now - 2000; // 2 seconds
+                for (const key in this._messageCache) {
+                    if (this._messageCache[key] < cutoff) {
+                        delete this._messageCache[key];
+                    }
+                }
+            }
+            
+            return false;
+        },
+        
+        // Handle incoming WebSocket messages
+        handleWebSocketMessage(message) {
+            // Skip duplicates
+            if (this._deduplicateMessage(message)) return;
+            
+            // Protect against own actions
+            if (message.actionId && message.actionId === this._lastActionId) return;
+            
+            switch (message.type) {
+                case "init":
+                    this.userId = message.userId;
+                    
+                    message.collaborators.forEach(user => {
+                        if (user.id !== this.userId) {
+                            this.collaborators[user.id] = user;
+                        }
+                    });
+                    break;
+                    
+                case "user_joined":
+                    this.showToast(`${message.name || "A new user"} joined the session`, 'success');
+                    break;
+                    
+                case "user_update":
+                    if (message.user && message.user.id !== this.userId) {
+                        this.collaborators[message.user.id] = message.user;
+                        
+                        // Show toast for first update from a user
+                        if (!document.querySelector(`.collaborator-badge[data-user-id="${message.user.id}"]`)) {
+                            this.showToast(`${message.user.name} joined the session`, 'success');
+                        }
+                    }
+                    break;
+                    
+                case "user_left":
+                    if (message.userId && this.collaborators[message.userId]) {
+                        const userName = this.collaborators[message.userId].name;
+                        delete this.collaborators[message.userId];
+                        
+                        // Remove any cursors for this user
+                        document.querySelectorAll(`.user-cursor[data-user-id="${message.userId}"]`).forEach(el => el.remove());
+                        document.querySelectorAll(`.user-cursor-absolute[data-user-id="${message.userId}"]`).forEach(el => el.remove());
+                        
+                        this.showToast(`${userName} left the session`, 'error');
+                    }
+                    break;
+                    
+                case "cell_focus":
+                    // Another user is focusing on a cell
+                    if (message.userId !== this.userId) {
+                        const cellId = message.cellId;
+                        const [rowId, colField] = cellId.split("-");
+                        
+                        try {
+                            // Get the row first
+                            const rows = this.table.getRows();
+                            if (rows && rowId < rows.length) {
+                                const row = rows[rowId];
+                                if (row) {
+                                    const cell = row.getCell(colField);
+                                    if (cell && cell.getElement()) {
+                                        const userName = this.collaborators[message.userId]?.name || "User";
+                                        const userColor = this.collaborators[message.userId]?.color || "#3b82f6";
+                                        
+                                        // Mark the cell as being edited
+                                        const element = cell.getElement();
+                                        element.classList.add("cell-being-edited");
+                                        element.style.boxShadow = `0 0 0 2px ${userColor} inset`;
+                                        
+                                        // Add editor name
+                                        const nameTag = document.createElement("div");
+                                        nameTag.className = "editor-name";
+                                        nameTag.textContent = userName;
+                                        nameTag.style.backgroundColor = userColor;
+                                        nameTag.style.color = "#ffffff";
+                                        element.appendChild(nameTag);
+                                    }
+                                }
+                            }
+                        } catch (e) {
+                            console.error("Error handling cell focus:", e);
+                        }
+                    }
+                    break;
+                    
+                case "cell_blur":
+                    // User stopped editing a cell
+                    if (message.userId !== this.userId) {
+                        const cellId = message.cellId;
+                        const [rowId, colField] = cellId.split("-");
+                        
+                        try {
+                            const rows = this.table.getRows();
+                            if (rows && rowId < rows.length) {
+                                const row = rows[rowId];
+                                if (row) {
+                                    const cell = row.getCell(colField);
+                                    if (cell && cell.getElement()) {
+                                        const element = cell.getElement();
+                                        element.classList.remove("cell-being-edited");
+                                        element.style.boxShadow = "";
+                                        
+                                        // Remove editor name
+                                        const nameTag = element.querySelector(".editor-name");
+                                        if (nameTag) nameTag.remove();
+                                    }
+                                }
+                            }
+                        } catch (e) {
+                            console.error("Error handling cell blur:", e);
+                        }
+                    }
+                    break;
+                    
+                case "cell_edit":
+                    // Another user edited a cell
+                    if (message.userId !== this.userId) {
+                        const rowId = message.rowId;
+                        const column = message.column;
+                        const value = message.value;
+                        
+                        try {
+                            let success = false;
+                            
+                            // Try direct DOM update first
+                            const cellElements = document.querySelectorAll(`.tabulator-cell[tabulator-field="${column}"]`);
+                            
+                            if (cellElements && cellElements.length > rowId) {
+                                const cellElement = cellElements[rowId];
+                                if (cellElement) {
+                                    cellElement.innerText = value;
+                                    cellElement.style.backgroundColor = "rgba(59, 130, 246, 0.3)";
+                                    setTimeout(() => {
+                                        cellElement.style.backgroundColor = "";
+                                    }, 1000);
+                                    success = true;
+                                    
+                                    // Also update the data model
+                                    const allData = this.table.getData();
+                                    if (rowId < allData.length) {
+                                        allData[rowId][column] = value;
+                                    }
+                                }
+                            }
+                            
+                            // If DOM update failed, update data model and redraw
+                            if (!success) {
+                                const allData = this.table.getData();
+                                if (rowId < allData.length) {
+                                    allData[rowId][column] = value;
+                                    this.table.setData(allData);
+                                    success = true;
+                                }
+                            }
+                        } catch (e) {
+                            console.error("Error updating cell:", e);
+                        }
+                    }
+                    break;
+                    
+                case "cursor_position":
+                    // A user moved their cursor to a specific cell
+                    if (message.userId !== this.userId && message.position) {
+                        this.highlightCellForUser(message.userId, message.position.row, message.position.column);
+                    }
+                    break;
+                    
+                case "table_structure":
+                    // Table structure changed
+                    if (message.userId !== this.userId) {
+                        this.syncTableStructure(message.columns, message.rowCount);
+                    }
+                    break;
+                    
+                case "column_reorder":
+                    // Column order changed
+                    if (message.userId !== this.userId && message.columns) {
+                        this.reorderColumns(message.columns);
+                    }
+                    break;
+                    
+                case "add_column":
+                    // Another user added a column
+                    if (message.userId !== this.userId) {
+                        const columnName = message.columnName;
+                        
+                        // Add the column to our table
+                        this.table.addColumn({
+                            title: columnName,
+                            field: columnName,
+                            editor: true,
+                            headerClick: (e, column) => this.editColumnHeader(e, column),
+                            cellMouseEnter: (e, cell) => {
+                                if (this.isCollaborative && this.isConnected) {
+                                    // Convert 1-based to 0-based row position
+                                    const row = cell.getRow().getPosition() - 1;
+                                    const column = cell.getColumn().getField();
+                                    this.sendCursorPosition(row, column);
+                                }
+                            }
+                        }, false);
+                        
+                        // Update our column count
+                        const columnCount = parseInt(columnName.replace('New Column ', ''));
+                        if (!isNaN(columnCount) && columnCount > this.columnCount) {
+                            this.columnCount = columnCount;
+                        }
+                        
+                        this.showToast(`${this.collaborators[message.userId]?.name || 'Someone'} added column: ${columnName}`);
+                    }
+                    break;
+                    
+                case "add_row":
+                    // Another user added a row
+                    if (message.userId !== this.userId) {
+                        try {
+                            // Create a new empty row
+                            const columns = this.table.getColumns();
+                            const newRow = {};
+                            columns.forEach(column => {
+                                newRow[column.getField()] = '';
+                            });
+                            
+                            // Add the row using direct data update
+                            const currentData = this.table.getData();
+                            currentData.push(newRow);
+                            this.table.setData(currentData);
+                            
+                            this.showToast(`${this.collaborators[message.userId]?.name || 'Someone'} added a new row`);
+                        } catch (e) {
+                            console.error("Failed to add row:", e);
+                        }
+                    }
+                    break;
+            }
+        },
+        
+        // Set up cell events for collaborative editing
+        setupCellEvents() {
+            // Listen for cell edit start events
+            this.table.on("cellEditing", (cell) => {
+                // Convert 1-based to 0-based row position
+                const row = cell.getRow().getPosition() - 1;
+                const column = cell.getColumn().getField();
+                this.sendCellFocus(row, column);
+            });
+            
+            // Listen for cell edit events
+            this.table.on("cellEdited", (cell) => {
+                // Convert 1-based to 0-based row position
+                const row = cell.getRow().getPosition() - 1;
+                const column = cell.getColumn().getField();
+                const value = cell.getValue();
+                
+                // Save value locally
+                this.tableData = this.table.getData();
+                
+                // Send edit to server
+                this.sendCellEdit(row, column, value);
+            });
+            
+            // Listen for cell blur events
+            this.table.on("cellEditCancelled", (cell) => {
+                // Convert 1-based to 0-based row position
+                const row = cell.getRow().getPosition() - 1;
+                const column = cell.getColumn().getField();
+                this.sendCellBlur(row, column);
+            });
+        },
+        
+        // Send cell focus event via WebSocket
+        sendCellFocus(row, column) {
+            if (!this.isCollaborative || !this.isConnected) return;
+            
+            const cellId = `${row}-${column}`;
+            this.socket.send(JSON.stringify({
+                type: "cell_focus",
+                cellId: cellId
+            }));
+        },
+        
+        // Send cell blur event via WebSocket
+        sendCellBlur(row, column) {
+            if (!this.isCollaborative || !this.isConnected) return;
+            
+            const cellId = `${row}-${column}`;
+            this.socket.send(JSON.stringify({
+                type: "cell_blur",
+                cellId: cellId
+            }));
+        },
+        
+        // Send cell edit event via WebSocket
+        sendCellEdit(row, column, value) {
+            if (!this.isCollaborative || !this.isConnected) return;
+            
+            this.socket.send(JSON.stringify({
+                type: "cell_edit",
+                rowId: row,
+                column: column,
+                value: value
+            }));
+        },
+        
+        // Optimized mouse tracking with throttling
+        trackMouseMovement() {
+            if (!this.isCollaborative) return;
+            
+            let lastX = 0, lastY = 0;
+            let throttled = false;
+            
+            document.addEventListener('mousemove', (e) => {
+                if (throttled || !this.isConnected || !this.socket) return;
+                
+                // Only update if cursor moved significantly
+                if (Math.abs(e.clientX - lastX) > 5 || Math.abs(e.clientY - lastY) > 5) {
+                    lastX = e.clientX;
+                    lastY = e.clientY;
+                    
+                    // Find cell under cursor
+                    this.tryCaptureTableCell(e.clientX, e.clientY);
+                    
+                    // Apply throttling
+                    throttled = true;
+                    setTimeout(() => { throttled = false; }, 50);
+                }
+            });
+        },
+        
+        // Send cursor position - optimized to send less data
+        sendCursorPosition(row, column) {
+            if (!this.isCollaborative || !this.isConnected) return;
+            
+            this.socket.send(JSON.stringify({
+                type: "cursor_position",
+                position: {row, column}
+            }));
+        },
+        
+        // Simplified method to send table structure updates
+        sendTableUpdate(data) {
+            if (!this.isCollaborative || !this.isConnected) return;
+            
+            const columns = this.table.getColumns().map(col => ({
+                field: col.getField(),
+                title: col.getDefinition().title
+            }));
+            
+            this.socket.send(JSON.stringify({
+                type: "table_structure",
+                columns: columns,
+                rowCount: data.length
+            }));
+        },
+        
+        // Send column reordering information
+        sendColumnReorder(columns) {
+            if (!this.isCollaborative || !this.isConnected) return;
+            
+            this.socket.send(JSON.stringify({
+                type: "column_reorder",
+                columns: columns
+            }));
+        },
+        
+        // Simplified method to capture table cell under cursor
+        tryCaptureTableCell(clientX, clientY) {
+            try {
+                const tableRect = document.getElementById("data-table").getBoundingClientRect();
+                if (clientX >= tableRect.left && clientX <= tableRect.right &&
+                    clientY >= tableRect.top && clientY <= tableRect.bottom) {
+                    
+                    // Find cell element directly under cursor
+                    const element = document.elementFromPoint(clientX, clientY);
+                    if (!element) return;
+                    
+                    const cell = element.closest('.tabulator-cell');
+                    if (!cell) return;
+                    
+                    const field = cell.getAttribute('tabulator-field');
+                    const row = cell.closest('.tabulator-row');
+                    if (!field || !row) return;
+                    
+                    // Find row position by counting previous siblings
+                    let rowPosition = 0;
+                    let current = row;
+                    while (current.previousElementSibling) {
+                        current = current.previousElementSibling;
+                        if (current.classList.contains('tabulator-row')) {
+                            rowPosition++;
+                        }
+                    }
+                    
+                    // Send cursor position to server
+                    this.sendCursorPosition(rowPosition, field);
+                }
+            } catch (e) {
+                console.error("Error finding cell under cursor:", e);
+            }
+        },
+        
+        // Simplified method to highlight cell for user
+        highlightCellForUser(userId, rowPosition, colField) {
+            if (!this.collaborators[userId]) return;
+            
+            // Remove any existing cursor indicators for this user
+            document.querySelectorAll(`.user-cursor[data-user-id="${userId}"]`).forEach(el => el.remove());
+            
+            // Get user info
+            const userName = this.collaborators[userId].name || "User";
+            const userColor = this.collaborators[userId].color || "#3b82f6";
+            
+            // Find cell element
+            const cellElements = document.querySelectorAll(`.tabulator-cell[tabulator-field="${colField}"]`);
+            if (!cellElements || cellElements.length <= rowPosition) return;
+            
+            const cellElement = cellElements[rowPosition];
+            const rect = cellElement.getBoundingClientRect();
+            
+            // Create highlight element
+            const highlightEl = document.createElement("div");
+            highlightEl.className = "user-cursor";
+            highlightEl.setAttribute("data-user-id", userId);
+            highlightEl.style.position = "absolute";
+            highlightEl.style.left = `${rect.left}px`;
+            highlightEl.style.top = `${rect.top}px`;
+            highlightEl.style.width = `${rect.width}px`;
+            highlightEl.style.height = `${rect.height}px`;
+            highlightEl.style.border = `2px solid ${userColor}`;
+            highlightEl.style.backgroundColor = `${userColor}20`; // 20% opacity
+            highlightEl.style.zIndex = "100";
+            highlightEl.style.pointerEvents = "none";
+            
+            // Add name tag
+            const nameTag = document.createElement("div");
+            nameTag.className = "cursor-name";
+            nameTag.textContent = userName;
+            nameTag.style.backgroundColor = userColor;
+            nameTag.style.color = "white";
+            nameTag.style.position = "absolute";
+            nameTag.style.top = "-20px";
+            nameTag.style.left = "0";
+            nameTag.style.fontSize = "10px";
+            nameTag.style.padding = "2px 4px";
+            nameTag.style.borderRadius = "2px";
+            nameTag.style.whiteSpace = "nowrap";
+            nameTag.style.transform = "translateX(-50%)";
+            nameTag.style.userSelect = "none";
+            
+            highlightEl.appendChild(nameTag);
+            document.body.appendChild(highlightEl);
+            
+            // Auto-remove after delay
+            setTimeout(() => {
+                if (highlightEl.parentNode) highlightEl.remove();
+            }, 2000);
+        },
+        
+        // Add method to sync table structure when it changes
+        syncTableStructure(columns, rowCount) {
+            if (!this.table) return;
+            
+            // Get current data
+            const currentData = this.table.getData();
+            
+            // Get current column definitions
+            const currentColumns = this.table.getColumns().map(col => ({
+                field: col.getField(),
+                title: col.getDefinition().title
+            }));
+            
+            // Check if we need to add columns
+            const newColumnDefs = [];
+            columns.forEach(newCol => {
+                const existingCol = currentColumns.find(col => col.field === newCol.field);
+                if (!existingCol) {
+                    // This is a new column
+                    newColumnDefs.push({
+                        title: newCol.title,
+                        field: newCol.field,
+                        editor: true
+                    });
+                }
+            });
+            
+            // Add any new columns
+            if (newColumnDefs.length > 0) {
+                newColumnDefs.forEach(colDef => {
+                    this.table.addColumn(colDef);
+                });
+            }
+            
+            // Add any missing rows
+            const currentRowCount = currentData.length;
+            if (rowCount > currentRowCount) {
+                // Need to add rows
+                const newRows = [];
+                const columnFields = this.table.getColumns().map(col => col.getField());
+                for (let i = currentRowCount; i < rowCount; i++) {
+                    const newRow = {};
+                    columnFields.forEach(field => {
+                        newRow[field] = "";
+                    });
+                    newRows.push(newRow);
+                }
+                if (newRows.length > 0) {
+                    this.table.addData(newRows);
+                }
+            }
+        },
+        
+        // Add method to reorder columns when they're moved
+        reorderColumns(columnOrder) {
+            if (!this.table) return;
+            
+            // Get current columns
+            const currentColumns = this.table.getColumns();
+            const columnMap = {};
+            
+            // Create a map of field -> column
+            currentColumns.forEach(col => {
+                columnMap[col.getField()] = col.getDefinition();
+            });
+            
+            // Create new column definitions in the right order
+            const newColumnDefs = columnOrder.map(field => {
+                if (columnMap[field]) {
+                    return columnMap[field];
+                }
+                return null;
+            }).filter(Boolean);
+            
+            // Apply the new column order
+            if (newColumnDefs.length > 0) {
+                this.table.setColumns(newColumnDefs);
+            }
+        },
+        
+        // Show a toast notification
+        showToast(message, type = 'success') {
+            const toast = document.createElement('div');
+            toast.className = `toast ${type}`;
+            toast.textContent = message;
+            const container = document.getElementById('toast-container') || document.body;
+            container.appendChild(toast);
+            setTimeout(() => toast.remove(), 2300);
+        },
+        
+        // Generate a random color for the user
+        getRandomColor() {
+            const colors = [
+                "#3b82f6", "#ef4444", "#10b981", "#f59e0b",
+                "#8b5cf6", "#ec4899", "#06b6d4", "#84cc16"
+            ];
+            return colors[Math.floor(Math.random() * colors.length)];
+        },
+        
+        // Shut down the server
+        async shutdownServer() {
+            if (!confirm('Are you sure you want to send the data back and close the editor connection?')) return;
+            try {
+                await this.saveData();
+                const response = await fetch('/shutdown', { method: 'POST' });
+                if (response.ok) {
+                    this.showToast('Server shutting down...', 'success');
+                    setTimeout(() => {
+                        if (window.parent !== window) {
+                            window.parent.document.querySelector('iframe').remove();
+                        } else {
+                            window.close();
+                        }
+                    }, 1000);
+                } else {
+                    throw new Error('Shutdown request failed');
+                }
+            } catch (e) {
+                console.error('Error shutting down:', e);
+                this.showToast('Error shutting down server', 'error');
+            }
+        },
+        
+        // Cancel changes and close the editor
+        async cancelChanges() {
+            if (!confirm('Are you sure you want to discard all changes and close the editor?')) return;
+            try {
+                const response = await fetch('/cancel', { method: 'POST' });
+                if (response.ok) {
+                    this.showToast('Discarding changes...', 'success');
+                    setTimeout(() => {
+                        if (window.parent !== window) {
+                            window.parent.document.querySelector('iframe').remove();
+                        } else {
+                            window.close();
+                        }
+                    }, 1000);
+                } else {
+                    throw new Error('Cancel request failed');
+                }
+            } catch (e) {
+                console.error('Error canceling:', e);
+                this.showToast('Error canceling changes', 'error');
+            }
+        },
+
+        // Fix the updateAbsoluteCursor method
+        updateAbsoluteCursor(userId, cursor) {
+            if (!this.collaborators[userId] || !cursor.x || !cursor.y) return;
+            
+            // Remove old cursor
+            document.querySelectorAll(`.user-cursor-absolute[data-user-id="${userId}"]`).forEach(el => el.remove());
+            
+            // Create cursor element
+            const cursorElement = document.createElement("div");
+            cursorElement.className = "user-cursor-absolute";
+            cursorElement.setAttribute("data-user-id", userId);
+            
+            const userName = this.collaborators[userId].name || "User";
+            const userColor = this.collaborators[userId].color || "#3b82f6";
+            
+            // Style the cursor element
+            cursorElement.style.position = "fixed";
+            cursorElement.style.left = `${cursor.x}px`;
+            cursorElement.style.top = `${cursor.y}px`;
+            cursorElement.style.width = "12px";
+            cursorElement.style.height = "12px";
+            cursorElement.style.backgroundColor = userColor;
+            cursorElement.style.borderRadius = "50%";
+            cursorElement.style.pointerEvents = "none";
+            cursorElement.style.zIndex = "9999";
+            cursorElement.style.transition = "transform 0.1s ease";
+            cursorElement.style.transform = "translate(-50%, -50%)";
+            
+            // Add name tag to cursor
+            const nameTag = document.createElement("div");
+            nameTag.className = "cursor-name";
+            nameTag.textContent = userName;
+            nameTag.style.backgroundColor = userColor;
+            nameTag.style.position = "absolute";
+            nameTag.style.top = "-20px";
+            nameTag.style.left = "0";
+            nameTag.style.color = "white";
+            nameTag.style.fontSize = "10px";
+            nameTag.style.padding = "2px 4px";
+            nameTag.style.borderRadius = "2px";
+            nameTag.style.whiteSpace = "nowrap";
+            nameTag.style.transform = "translateX(-50%)";
+            nameTag.style.userSelect = "none";
+            
+            cursorElement.appendChild(nameTag);
+            document.body.appendChild(cursorElement);
+            
+            // Remove cursor after inactivity
+            setTimeout(() => {
+                if (cursorElement.parentNode) {
+                    cursorElement.style.opacity = "0.5";
+                }
+            }, 5000);
         }
-    }
-}
-
-document.addEventListener('DOMContentLoaded', initializeTable);
-
-// Update cell focus and editing functionality
-function setupCellEvents() {
-    if (!isCollaborative) return;
-    
-    // Listen for cell edit start events
-    table.on("cellEditing", function(cell) {
-        const row = cell.getRow().getData().id || cell.getRow().getPosition();
-        const column = cell.getColumn().getField();
-        sendCellFocus(row, column);
-    });
-    
-    // Listen for cell edit events
-    table.on("cellEdited", function(cell) {
-        const row = cell.getRow().getData().id || cell.getRow().getPosition();
-        const column = cell.getColumn().getField();
-        const value = cell.getValue();
-        
-        console.log(`Sending edit for cell [${row}, ${column}] = ${value}`);
-        
-        // Send edit to server immediately
-        sendCellEdit(row, column, value);
-    });
-    
-    // Listen for cell blur events
-    table.on("cellEditCancelled", function(cell) {
-        const row = cell.getRow().getData().id || cell.getRow().getPosition();
-        const column = cell.getColumn().getField();
-        sendCellBlur(row, column);
-    });
+    };
 }

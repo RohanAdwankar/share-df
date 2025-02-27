@@ -5,11 +5,12 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabulator/5.4.4/css/tabulator.min.css">
     <link rel="stylesheet" href="{{ url_for('static', path='/css/styles.css') }}">
     <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/tabulator/5.4.4/js/tabulator.min.js"></script>
+    <script defer src="https://unpkg.com/alpinejs@3.12.0/dist/cdn.min.js"></script>
 </head>
-<body>
-    <div id="loading-overlay" class="loading-overlay">
+<body x-data="editorApp({{ collaborative|lower }})" x-init="init()">
+    <div id="loading-overlay" class="loading-overlay" x-show="loading">
         <div class="loading-spinner"></div>
-        <div id="loading-text" class="loading-text">Loading data...</div>
+        <div id="loading-text" class="loading-text" x-text="loadingText"></div>
     </div>
 
     <div class="bg-glow">
@@ -23,13 +24,13 @@
                 
                 <div class="button-container">
                     <div class="button-group">
-                        <button onclick="addNewColumn()" class="button add-button">
+                        <button @click="addNewColumn()" class="button add-button">
                             <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v12m6-6H6"></path>
                             </svg>
                             Add Column
                         </button>
-                        <button onclick="addNewRow()" class="button add-button">
+                        <button @click="addNewRow()" class="button add-button">
                             <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v12m6-6H6"></path>
                             </svg>
@@ -37,23 +38,23 @@
                         </button>
                     </div>
                     
-                    {% if not collaborative %}
-                    <button onclick="saveData()" class="button save-button">
-                        <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
-                        </svg>
-                        Save Changes
-                    </button>
-                    {% endif %}
+                    <template x-if="!isCollaborative">
+                        <button @click="saveData()" class="button save-button">
+                            <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                            </svg>
+                            Save Changes
+                        </button>
+                    </template>
                     
-                    <button onclick="shutdownServer()" class="button send-button">
+                    <button @click="shutdownServer()" class="button send-button">
                         <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
                         </svg>
-                        {% if collaborative %}Finish Editing{% else %}Send Data{% endif %}
+                        <span x-text="isCollaborative ? 'Finish Editing' : 'Send Data'"></span>
                     </button>
                     
-                    <button onclick="cancelChanges()" class="button cancel-button">
+                    <button @click="cancelChanges()" class="button cancel-button">
                         <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
                         </svg>
@@ -62,12 +63,21 @@
                 </div>
             </div>
             
-            {% if collaborative %}
-            <div id="collaborators-container" class="collaborators-container" style="display: none;">
-                <div class="collaborators-header">Collaborators:</div>
-                <div id="collaborators-list" class="collaborators-list"></div>
-            </div>
-            {% endif %}
+            <template x-if="isCollaborative">
+                <div id="collaborators-container" class="collaborators-container" x-show="Object.keys(collaborators).length > 0">
+                    <div class="collaborators-header">Collaborators:</div>
+                    <div id="collaborators-list" class="collaborators-list">
+                        <template x-for="(collab, id) in collaborators" :key="id">
+                            <div class="collaborator-badge" 
+                                 :data-user-id="id"
+                                 :style="`background-color: ${collab.color}20; border-color: ${collab.color}; color: ${collab.color}`">
+                                <div class="collaborator-dot" :style="`background-color: ${collab.color}`"></div>
+                                <span x-text="collab.name"></span>
+                            </div>
+                        </template>
+                    </div>
+                </div>
+            </template>
         </header>
         
         <main class="main-content">
@@ -76,10 +86,10 @@
             </div>
         </main>
     </div>
-    <script>
-        // Pass server-side variables to JavaScript
-        const isCollaborative = {% if collaborative %}true{% else %}false{% endif %};
-    </script>
+
+    <!-- Toast Container -->
+    <div id="toast-container" class="toast-container"></div>
+
     <script src="{{ url_for('static', path='/js/editor.js') }}"></script>
 </body>
 </html>
