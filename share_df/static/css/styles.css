@@ -170,7 +170,8 @@ body {
 
 .tabulator .tabulator-header {
     background-color: var(--table-header-bg);
-    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    border-bottom: 2px solid rgba(255, 255, 255, 0.15);
+    font-weight: 600;
 }
 
 .tabulator .tabulator-header .tabulator-col {
@@ -183,6 +184,22 @@ body {
     color: #94a3b8;
     font-weight: 500;
     font-size: 0.875rem;
+}
+
+.tabulator .tabulator-header .tabulator-col:hover {
+    background-color: var(--table-header-bg) !important; /* Override Tabulator's hover state */
+}
+
+.tabulator .tabulator-header .tabulator-col .tabulator-col-content .tabulator-col-sorter .tabulator-arrow {
+    border-bottom-color: #6b7280;
+}
+
+.tabulator .tabulator-header .tabulator-col.tabulator-sortable:hover .tabulator-col-title {
+    color: white;
+}
+
+.tabulator .tabulator-header .tabulator-col.tabulator-sortable.tabulator-col-sorter-element:hover {
+    background-color: rgba(59, 130, 246, 0.1) !important;
 }
 
 /* Fixed tableHolder background */
@@ -447,3 +464,55 @@ body {
     70% { box-shadow: 0 0 0 5px rgba(59, 130, 246, 0); }
     100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); }
 }
+
+/* Add these new styles for the tooltip */
+
+/* Column rename tooltip */
+.tooltip-box {
+    position: fixed;
+    top: 70px;
+    left: 50%;
+    transform: translateX(-50%);
+    background-color: rgba(17, 24, 39, 0.95);
+    border: 1px solid var(--primary);
+    border-radius: 8px;
+    padding: 12px 16px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    z-index: 1000;
+    max-width: 320px;
+    animation: fadeIn 0.3s ease-out;
+}
+
+.tooltip-content {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+}
+
+.tooltip-icon {
+    font-size: 1.5rem;
+}
+
+.tooltip-text {
+    font-size: 0.875rem;
+    line-height: 1.4;
+    color: var(--text);
+}
+
+.dismiss-button {
+    background-color: var(--primary);
+    color: white;
+    border: none;
+    padding: 4px 8px;
+    border-radius: 4px;
+    margin-top: 8px;
+    font-size: 0.75rem;
+    cursor: pointer;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translate(-50%, -10px); }
+    to { opacity: 1; transform: translate(-50%, 0); }
+}
+
+/* Rest of the CSS remains unchanged */

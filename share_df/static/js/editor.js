@@ -25,6 +25,24 @@ function editorApp(isCollaborative) {
             if (this.isCollaborative) {
                 this.setupWebSocket();
             }
+            
+            // Show column rename tooltip after a short delay
+            setTimeout(() => {
+                const tooltip = document.getElementById('column-rename-tooltip');
+                if (tooltip) {
+                    tooltip.style.display = 'block';
+                    
+                    // Auto-hide after 10 seconds
+                    setTimeout(() => {
+                        tooltip.style.display = 'none';
+                    }, 10000);
+                    
+                    // Handle dismiss button
+                    document.getElementById('dismiss-tooltip')?.addEventListener('click', () => {
+                        tooltip.style.display = 'none';
+                    });
+                }
+            }, 2000);
         },
         
         // Load data from the server
@@ -60,7 +78,18 @@ function editorApp(isCollaborative) {
                 title: key,
                 field: key,
                 editor: true,
-                headerClick: (e, column) => this.editColumnHeader(e, column),
+                sorter: "string", // Default sorter
+                // Use headerClick with shift key check
+                headerClick: (e, column) => {
+                    // If shift key is pressed, rename column, otherwise let default sort behavior happen
+                    if (e.shiftKey) {
+                        e.stopPropagation(); // Stop the default sort behavior
+                        this.editColumnHeader(e, column);
+                        return false; // Prevent default behavior
+                    }
+                    // Let default sort behavior happen for regular clicks
+                    return true;
+                },
                 cellMouseEnter: function(e, cell) {
                     if (!self.isCollaborative || !self.isConnected) return;
                     
@@ -153,7 +182,18 @@ function editorApp(isCollaborative) {
                 title: newColumnName,
                 field: newColumnName,
                 editor: true,
-                headerClick: (e, column) => this.editColumnHeader(e, column),
+                sorter: "string", // Default sorter
+                // Use headerClick with shift key check
+                headerClick: (e, column) => {
+                    // If shift key is pressed, rename column, otherwise let default sort behavior happen
+                    if (e.shiftKey) {
+                        e.stopPropagation(); // Stop the default sort behavior
+                        this.editColumnHeader(e, column);
+                        return false; // Prevent default behavior
+                    }
+                    // Let default sort behavior happen for regular clicks
+                    return true;
+                },
                 cellMouseEnter: (e, cell) => {
                     if (this.isCollaborative && this.isConnected) {
                         // Convert 1-based to 0-based row position
@@ -567,7 +607,18 @@ function editorApp(isCollaborative) {
                             title: columnName,
                             field: columnName,
                             editor: true,
-                            headerClick: (e, column) => this.editColumnHeader(e, column),
+                            sorter: "string", // Default sorter
+                            // Use headerClick with shift key check
+                            headerClick: (e, column) => {
+                                // If shift key is pressed, rename column, otherwise let default sort behavior happen
+                                if (e.shiftKey) {
+                                    e.stopPropagation(); // Stop the default sort behavior
+                                    this.editColumnHeader(e, column);
+                                    return false; // Prevent default behavior
+                                }
+                                // Let default sort behavior happen for regular clicks
+                                return true;
+                            },
                             cellMouseEnter: (e, cell) => {
                                 if (this.isCollaborative && this.isConnected) {
                                     // Convert 1-based to 0-based row position
@@ -980,7 +1031,6 @@ function editorApp(isCollaborative) {
                     
                     // Count active collaborators (excluding self)
                     const activeCollaborators = Object.keys(this.collaborators).length;
-                    
                     if (activeCollaborators === 0) {
                         // No other collaborators are present, shut down the server
                         if (!confirm('You are the only user connected. Do you want to close the editor and save your changes?')) return;
@@ -1072,7 +1122,7 @@ function editorApp(isCollaborative) {
                 this.showToast('Error canceling changes', 'error');
             }
         },
-
+        
         // Fix the updateAbsoluteCursor method
         updateAbsoluteCursor(userId, cursor) {
             if (!this.collaborators[userId] || !cursor.x || !cursor.y) return;
@@ -1106,10 +1156,10 @@ function editorApp(isCollaborative) {
             nameTag.className = "cursor-name";
             nameTag.textContent = userName;
             nameTag.style.backgroundColor = userColor;
+            nameTag.style.color = "white";
             nameTag.style.position = "absolute";
             nameTag.style.top = "-20px";
             nameTag.style.left = "0";
-            nameTag.style.color = "white";
             nameTag.style.fontSize = "10px";
             nameTag.style.padding = "2px 4px";
             nameTag.style.borderRadius = "2px";
