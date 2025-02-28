@@ -44,6 +44,8 @@ class ShareServer:
         self.cell_editors: Dict[str, str] = {}  # Maps cell ID to user ID of current editor
         
         self.added_columns = []
+        self.added_rows_count = 0
+        self.current_data = []
         
         if isinstance(df, pl.DataFrame):
             self.original_type = "polars"
@@ -137,6 +139,7 @@ class ShareServer:
             
             # Convert the DataFrame to records
             data = self.df.to_dict(orient='records')
+            self.current_data = data
             
             # Add debug info for test mode
             if self.test_mode:
@@ -161,6 +164,13 @@ class ShareServer:
                 self.df = updated_df
             else:
                 self.df = updated_df
+            
+            self.current_data = data_update.data
+            
+            original_rows = len(self.original_df)
+            current_rows = len(updated_df)
+            if current_rows > original_rows:
+                self.added_rows_count = current_rows - original_rows
                 
             logger.info("Updated DataFrame")
             return {"status": "success"}
@@ -220,12 +230,17 @@ class ShareServer:
             try:
                 logger.info(f"New WebSocket connection: {user_id}")
                 
+                if not self.current_data or len(self.current_data) != len(self.df):
+                    self.current_data = self.df.to_dict(orient='records')
+                
                 # Send current state to the new user
                 await websocket.send_json({
                     "type": "init",
                     "userId": user_id,
                     "collaborators": [collab.dict() for collab in self.collaborators.values()],
-                    "addedColumns": self.added_columns  # Send list of added columns to new users
+                    "addedColumns": self.added_columns,  # Send list of added columns to new users
+                    "currentData": self.current_data,    # Send current data state
+                    "addedRows": self.added_rows_count   # Send info about added rows
                 })
                 
                 # Notify other users about the new user
@@ -324,8 +339,12 @@ class ShareServer:
                                     except (ValueError, TypeError):
                                         # If conversion fails, use the value as is
                                         pass
-                                        
+                                    
                                     self.df.at[row_index, column] = value
+                                    
+                                    if row_index < len(self.current_data):
+                                        self.current_data[row_index][column] = value
+                                    
                                     logger.debug(f"Updated DataFrame at [{row_index}, {column}] = {value}")
                             except Exception as e:
                                 logger.error(f"Error updating DataFrame: {e}")
@@ -380,12 +399,22 @@ class ShareServer:
                     elif message_type == "add_column":
                         # User added a column
                         column_name = message.get("columnName", "")
-                        operation_id = message.get("operationId", "") # Pass through the operation ID
+                        operation_id = message.get("operationId", "")
                         
                         logger.info(f"User {user_id} added column: {column_name}")
                         
+                        # Store the added column
                         if column_name and column_name not in self.added_columns:
                             self.added_columns.append(column_name)
+                            
+                            # Also ensure the column exists in our DataFrame
+                            if column_name not in self.df.columns:
+                                self.df[column_name] = ""
+                                
+                            # Update current_data with the new column
+                            for row in self.current_data:
+                                if column_name not in row:
+                                    row[column_name] = ""
                         
                         # Broadcast to everyone
                         await self.broadcast({
@@ -398,9 +427,21 @@ class ShareServer:
                     elif message_type == "add_row":
                         # User added a row
                         row_id = message.get("rowId", -1)
-                        operation_id = message.get("operationId", "") # Pass through the operation ID
+                        operation_id = message.get("operationId", "")
                         
                         logger.info(f"User {user_id} added row at position: {row_id}")
+                        
+                        # Update our count of added rows
+                        self.added_rows_count += 1
+                        
+                        # Create a new empty row in our DataFrame
+                        if len(self.df) > 0:
+                            empty_row = pd.Series("", index=self.df.columns)
+                            self.df = pd.concat([self.df, pd.DataFrame([empty_row])], ignore_index=True)
+                            
+                            # Also update current_data
+                            new_row = {column: "" for column in self.df.columns}
+                            self.current_data.append(new_row)
                         
                         # Broadcast to everyone
                         await self.broadcast({
