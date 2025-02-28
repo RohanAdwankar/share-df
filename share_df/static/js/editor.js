@@ -47,6 +47,7 @@ function editorApp(isCollaborative, isTestMode = false) {
                     }
                 }, 2000);
             }
+            setupTooltip();
         },
         
         // Load data from the server
@@ -1185,3 +1186,38 @@ function editorApp(isCollaborative, isTestMode = false) {
         }
     };
 }
+
+function setupTooltip() {
+    const tooltip = document.getElementById('column-rename-tooltip');
+    const dismissButton = document.getElementById('dismiss-tooltip');
+    
+    // Show tooltip after a slight delay
+    setTimeout(() => {
+        if (tooltip) tooltip.style.display = 'block';
+    }, 1000);
+    
+    // Dismiss with button click
+    if (dismissButton) {
+        dismissButton.addEventListener('click', () => {
+            hideTooltip();
+        });
+    }
+    
+    // Dismiss with Escape key
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && tooltip && tooltip.style.display !== 'none') {
+            hideTooltip();
+        }
+    });
+    
+    function hideTooltip() {
+        if (tooltip) {
+            tooltip.style.opacity = '0';
+            tooltip.style.transform = 'translateY(10px)';
+            setTimeout(() => {
+                tooltip.style.display = 'none';
+            }, 300);
+        }
+    }
+}
+
