@@ -3,6 +3,7 @@ import threading
 import uvicorn
 import pandas as pd
 import polars as pl
+import logging
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
@@ -18,8 +19,22 @@ import json
 import uuid
 from .testing import is_test_mode
 
+logger = logging.getLogger("share_df")
+
 class ShareServer:
-    def __init__(self, df: Union[pd.DataFrame, pl.DataFrame], collaborative_mode: bool = True, test_mode: bool = False):
+    def __init__(self, df: Union[pd.DataFrame, pl.DataFrame], collaborative_mode: bool = True, test_mode: bool = False, log_level: str = "CRITICAL"):
+        # Configure logging level
+        log_level = log_level.upper()
+        numeric_level = getattr(logging, log_level, logging.CRITICAL)
+        logger.setLevel(numeric_level)
+        
+        # Add a handler if none exists
+        if not logger.handlers:
+            handler = logging.StreamHandler()
+            formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+            handler.setFormatter(formatter)
+            logger.addHandler(handler)
+        
         self.app = FastAPI()
         self.shutdown_event = threading.Event()
         self.collaborative_mode = collaborative_mode
@@ -61,23 +76,23 @@ class ShareServer:
     def debug_server_status(self):
         """Print debug information about the server state"""
         import sys
-        print(f"Server Debug Information:")
-        print(f"  Python Version: {sys.version}")
-        print(f"  Collaborative Mode: {self.collaborative_mode}")
-        print(f"  Test Mode: {self.test_mode}")
-        print(f"  DataFrame Type: {self.original_type}")
-        print(f"  DataFrame Shape: {self.df.shape}")
-        print(f"  DataFrame Columns: {list(self.df.columns)}")
-        print(f"  DataFrame First Row: {self.df.iloc[0].to_dict() if len(self.df) > 0 else 'Empty'}")
-        print(f"  Active Connections: {len(self.active_connections)}")
-        print(f"  Active Collaborators: {len(self.collaborators)}")
+        logger.debug(f"Server Debug Information:")
+        logger.debug(f"  Python Version: {sys.version}")
+        logger.debug(f"  Collaborative Mode: {self.collaborative_mode}")
+        logger.debug(f"  Test Mode: {self.test_mode}")
+        logger.debug(f"  DataFrame Type: {self.original_type}")
+        logger.debug(f"  DataFrame Shape: {self.df.shape}")
+        logger.debug(f"  DataFrame Columns: {list(self.df.columns)}")
+        logger.debug(f"  DataFrame First Row: {self.df.iloc[0].to_dict() if len(self.df) > 0 else 'Empty'}")
+        logger.debug(f"  Active Connections: {len(self.active_connections)}")
+        logger.debug(f"  Active Collaborators: {len(self.collaborators)}")
     
     def setup_routes(self):
         @self.app.get("/")
         async def root(request: Request):
             """Root endpoint that renders the editor template"""
             if self.test_mode:
-                print("Rendering template in test mode")
+                logger.debug("Rendering template in test mode")
             
             # For FastAPI 0.95.0+, we need to pass request as first argument
             try:
@@ -110,10 +125,10 @@ class ShareServer:
             
             # Ensure the dataframe is not empty
             if self.df.empty:
-                print("Warning: DataFrame is empty!")
+                logger.warning("Warning: DataFrame is empty!")
                 # Return a minimal dummy dataframe for testing
                 if self.test_mode:
-                    print("Using dummy data in test mode")
+                    logger.debug("Using dummy data in test mode")
                     return [{"col1": 1, "col2": "test"}]
                 else:
                     return []
@@ -123,11 +138,11 @@ class ShareServer:
             
             # Add debug info for test mode
             if self.test_mode:
-                print(f"Sending {len(data)} records:")
+                logger.debug(f"Sending {len(data)} records:")
                 if len(data) > 0:
-                    print(f"  First record: {data[0]}")
+                    logger.debug(f"  First record: {data[0]}")
             else:
-                print(f"Sending data: {data}")
+                logger.debug(f"Sending data: {len(data)} records")
             
             return JSONResponse(content=data)
             
@@ -145,7 +160,7 @@ class ShareServer:
             else:
                 self.df = updated_df
                 
-            print("Updated DataFrame:\n", self.df)
+            logger.info("Updated DataFrame")
             return {"status": "success"}
             
         @self.app.post("/shutdown")
@@ -182,7 +197,7 @@ class ShareServer:
             else:
                 self.df = updated_df
                 
-            print("Updated DataFrame from collaborative save:\n", self.df)
+            logger.info("Updated DataFrame from collaborative save")
             
             # Broadcast data update to all users
             if self.collaborative_mode:
@@ -201,7 +216,7 @@ class ShareServer:
             self.active_connections[user_id] = websocket
             
             try:
-                print(f"New WebSocket connection: {user_id}")
+                logger.info(f"New WebSocket connection: {user_id}")
                 
                 # Send current state to the new user
                 await websocket.send_json({
@@ -222,7 +237,7 @@ class ShareServer:
                     message = json.loads(data)
                     message_type = message.get("type", "")
                     
-                    print(f"Received message from {user_id}: {message_type}")
+                    logger.debug(f"Received message from {user_id}: {message_type}")
                     
                     # Add debug ping handler
                     if message_type == "debug_ping":
@@ -230,7 +245,7 @@ class ShareServer:
                         now = int(time.time() * 1000)
                         latency = now - timestamp
                         
-                        print(f"Debug ping from {user_id}: latency {latency}ms")
+                        logger.debug(f"Debug ping from {user_id}: latency {latency}ms")
                         
                         # Send pong response
                         await websocket.send_json({
@@ -288,7 +303,7 @@ class ShareServer:
                         column = message.get("column")
                         value = message.get("value")
                         
-                        print(f"Cell edit from {user_id}: [{row_id}, {column}] = {value}")
+                        logger.debug(f"Cell edit from {user_id}: [{row_id}, {column}] = {value}")
                         
                         # Update the dataframe
                         if row_id is not None and column is not None:
@@ -308,9 +323,9 @@ class ShareServer:
                                         pass
                                         
                                     self.df.at[row_index, column] = value
-                                    print(f"Updated DataFrame at [{row_index}, {column}] = {value}")
+                                    logger.debug(f"Updated DataFrame at [{row_index}, {column}] = {value}")
                             except Exception as e:
-                                print(f"Error updating DataFrame: {e}")
+                                logger.error(f"Error updating DataFrame: {e}")
                         
                         # Broadcast edit to EVERYONE (including the sender for confirmation)
                         await self.broadcast({
@@ -364,7 +379,7 @@ class ShareServer:
                         column_name = message.get("columnName", "")
                         operation_id = message.get("operationId", "") # Pass through the operation ID
                         
-                        print(f"User {user_id} added column: {column_name}")
+                        logger.info(f"User {user_id} added column: {column_name}")
                         
                         # Broadcast to everyone
                         await self.broadcast({
@@ -379,7 +394,7 @@ class ShareServer:
                         row_id = message.get("rowId", -1)
                         operation_id = message.get("operationId", "") # Pass through the operation ID
                         
-                        print(f"User {user_id} added row at position: {row_id}")
+                        logger.info(f"User {user_id} added row at position: {row_id}")
                         
                         # Broadcast to everyone
                         await self.broadcast({
@@ -391,7 +406,7 @@ class ShareServer:
                     
                     elif message_type == "user_finished":
                         # User is leaving but server continues for others
-                        print(f"User {user_id} is finishing their session")
+                        logger.info(f"User {user_id} is finishing their session")
                         
                         # Let everyone know this user is leaving
                         await self.broadcast({
@@ -401,7 +416,7 @@ class ShareServer:
                         })
             
             except WebSocketDisconnect:
-                print(f"WebSocket disconnected: {user_id}")
+                logger.info(f"WebSocket disconnected: {user_id}")
                 # Remove disconnected user
                 if user_id in self.active_connections:
                     del self.active_connections[user_id]
@@ -423,7 +438,7 @@ class ShareServer:
                     "name": user_name
                 })
             except Exception as e:
-                print(f"WebSocket error for {user_id}: {e}")
+                logger.error(f"WebSocket error for {user_id}: {e}")
                 if user_id in self.active_connections:
                     del self.active_connections[user_id]
                 if user_id in self.collaborators:
@@ -445,7 +460,7 @@ class ShareServer:
         if message_key in self.recent_messages:
             last_time = self.recent_messages[message_key]
             if current_time - last_time < 0.3:  # 300ms
-                print(f"Skipping duplicate message: {message_key}")
+                logger.debug(f"Skipping duplicate message: {message_key}")
                 return
                 
         # Update message timestamp
@@ -458,8 +473,8 @@ class ShareServer:
         if msg_type == 'cell_edit':
             extra_info = f" - Cell [{message.get('rowId')}, {message.get('column')}] = {message.get('value')}"
         
-        print(f"Broadcasting '{msg_type}'{extra_info} to {client_count} client(s)" + 
-              (f" (excluding {exclude})" if exclude else ""))
+        logger.info(f"Broadcasting '{msg_type}'{extra_info} to {client_count} client(s)" + 
+                    (f" (excluding {exclude})" if exclude else ""))
         
         sent_count = 0
         for client_id, connection in self.active_connections.items():
@@ -468,9 +483,9 @@ class ShareServer:
                     await connection.send_json(message)
                     sent_count += 1
                 except Exception as e:
-                    print(f"Error broadcasting to {client_id}: {e}")
+                    logger.error(f"Error broadcasting to {client_id}: {e}")
         
-        print(f"Message sent to {sent_count}/{client_count} client(s)")
+        logger.debug(f"Message sent to {sent_count}/{client_count} client(s)")
 
     def _get_message_signature(self, message: dict) -> str:
         """Generate a unique signature for a message to detect duplicates"""
@@ -535,8 +550,8 @@ class ShareServer:
             url = f"http://localhost:{port}"
             return url, self.shutdown_event
         
-def run_server(df: pd.DataFrame, use_iframe: bool = False, collaborative: bool = False, test_mode: bool = False):
-    server = ShareServer(df, collaborative_mode=collaborative, test_mode=test_mode)
+def run_server(df: pd.DataFrame, use_iframe: bool = False, collaborative: bool = False, test_mode: bool = False, log_level: str = "CRITICAL"):
+    server = ShareServer(df, collaborative_mode=collaborative, test_mode=test_mode, log_level=log_level)
     url, shutdown_event = server.serve(use_iframe=use_iframe)
     return url, shutdown_event, server
 
@@ -552,12 +567,10 @@ def run_ngrok(url, emails, shutdown_event):
             shutdown_event.set()
             return
         
-        print(f"Attempting to share with: {', '.join(emails)}")
+        logger.info(f"Attempting to share with: {', '.join(emails)}")
         
         listener = ngrok.forward(url, authtoken_from_env=True, oauth_provider="google", oauth_allow_emails=emails)
-        print(f"Ingress established at: {listener.url()}")
-        print(f"Share this URL with these email addresses: {', '.join(emails)}")
-        print("Note: Recipients must log in with the exact email address you specified.")
+        print(f"Share this link: {listener.url()}")
         shutdown_event.wait()
     except Exception as e:
         if "ERR_NGROK_4018" in str(e):
@@ -577,15 +590,19 @@ def run_ngrok(url, emails, shutdown_event):
             print("Error details:", e)
             shutdown_event.set()
         else:
+            logger.error(f"Error setting up ngrok: {e}")
             print(f"Error setting up ngrok: {e}")
             shutdown_event.set()
 
-def start_editor(df, use_iframe: bool = False, collaborative: bool = False, share_with: List[str] = None, test_mode: bool = False):
+def start_editor(df, use_iframe: bool = False, collaborative: bool = False, share_with: List[str] = None, test_mode: bool = False, log_level: str = "CRITICAL", local: bool = False):
+    
     load_dotenv()
+
     if not use_iframe:
-        print("Starting server with DataFrame:")
-        print(df)
-    url, shutdown_event, server = run_server(df, use_iframe=use_iframe, collaborative=collaborative, test_mode=test_mode)
+        logger.info("Starting server with DataFrame:")
+        logger.info(df)
+
+    url, shutdown_event, server = run_server(df, use_iframe=use_iframe, collaborative=collaborative, test_mode=test_mode, log_level=log_level)
     try:
         from google.colab import output
         # If that works we're in Colab
@@ -596,7 +613,8 @@ def start_editor(df, use_iframe: bool = False, collaborative: bool = False, shar
         shutdown_event.wait()
     except ImportError:
         # not in Colab
-        print(f"Local server started at {url}")
+        if local:
+            print(f"Local server started at {url}")
         
         if collaborative:
             if share_with:
