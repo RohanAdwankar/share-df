@@ -610,6 +610,37 @@ function editorApp(isCollaborative) {
                         }
                     }
                     break;
+
+                case "data_sync":
+                    // Another user has saved their changes
+                    this.showToast(message.message || 'Data has been synchronized', 'success');
+                    
+                    // Optionally reload data to ensure consistency
+                    if (message.reload) {
+                        this.loadData().then(data => {
+                            if (data && data.length > 0) {
+                                this.table.setData(data);
+                            }
+                        });
+                    }
+                    break;
+
+                case "user_finished":
+                    // Another user has finished their session
+                    if (message.userId !== this.userId) {
+                        const userName = this.collaborators[message.userId]?.name || "A user";
+                        this.showToast(`${userName} has finished editing`, 'info');
+                        
+                        // Remove them from collaborators list
+                        if (this.collaborators[message.userId]) {
+                            delete this.collaborators[message.userId];
+                        }
+                        
+                        // Remove any cursors for this user
+                        document.querySelectorAll(`.user-cursor[data-user-id="${message.userId}"]`).forEach(el => el.remove());
+                        document.querySelectorAll(`.user-cursor-absolute[data-user-id="${message.userId}"]`).forEach(el => el.remove());
+                    }
+                    break;
             }
         },
         
@@ -935,25 +966,87 @@ function editorApp(isCollaborative) {
         
         // Shut down the server
         async shutdownServer() {
-            if (!confirm('Are you sure you want to send the data back and close the editor connection?')) return;
-            try {
-                await this.saveData();
-                const response = await fetch('/shutdown', { method: 'POST' });
-                if (response.ok) {
-                    this.showToast('Server shutting down...', 'success');
-                    setTimeout(() => {
-                        if (window.parent !== window) {
-                            window.parent.document.querySelector('iframe').remove();
+            if (this.isCollaborative) {
+                // First save the data to ensure no changes are lost
+                const data = this.table.getData();
+                try {
+                    await fetch('/save_and_continue', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({data}),
+                    });
+                    
+                    // Count active collaborators (excluding self)
+                    const activeCollaborators = Object.keys(this.collaborators).length;
+                    
+                    if (activeCollaborators === 0) {
+                        // No other collaborators are present, shut down the server
+                        if (!confirm('You are the only user connected. Do you want to close the editor and save your changes?')) return;
+                        
+                        const response = await fetch('/shutdown', { method: 'POST' });
+                        if (response.ok) {
+                            this.showToast('Editor closing, data saved...', 'success');
+                            setTimeout(() => {
+                                if (window.parent !== window) {
+                                    window.parent.document.querySelector('iframe').remove();
+                                } else {
+                                    window.close();
+                                }
+                            }, 1000);
                         } else {
-                            window.close();
+                            throw new Error('Shutdown request failed');
                         }
-                    }, 1000);
-                } else {
-                    throw new Error('Shutdown request failed');
+                    } else {
+                        // Other collaborators are active, just leave the session
+                        if (!confirm(`There are ${activeCollaborators} other collaborator(s) working on this file. Do you want to save your changes and exit?`)) return;
+                        
+                        // Notify others we're leaving
+                        if (this.socket && this.isConnected) {
+                            this.socket.send(JSON.stringify({
+                                type: "user_finished",
+                                userId: this.userId
+                            }));
+                        }
+                        
+                        this.showToast('Changes saved. Your session has ended.', 'success');
+                        
+                        // Close the current tab/window
+                        setTimeout(() => {
+                            if (window.parent !== window) {
+                                window.parent.document.querySelector('iframe').remove();
+                            } else {
+                                window.close();
+                            }
+                        }, 1000);
+                    }
+                } catch (e) {
+                    console.error('Error during exit operation:', e);
+                    this.showToast('Error saving data', 'error');
                 }
-            } catch (e) {
-                console.error('Error shutting down:', e);
-                this.showToast('Error shutting down server', 'error');
+            } else {
+                // Original behavior for non-collaborative mode
+                if (!confirm('Are you sure you want to send the data back and close the editor connection?')) return;
+                try {
+                    await this.saveData();
+                    const response = await fetch('/shutdown', { method: 'POST' });
+                    if (response.ok) {
+                        this.showToast('Server shutting down...', 'success');
+                        setTimeout(() => {
+                            if (window.parent !== window) {
+                                window.parent.document.querySelector('iframe').remove();
+                            } else {
+                                window.close();
+                            }
+                        }, 1000);
+                    } else {
+                        throw new Error('Shutdown request failed');
+                    }
+                } catch (e) {
+                    console.error('Error shutting down:', e);
+                    this.showToast('Error shutting down server', 'error');
+                }
             }
         },
         

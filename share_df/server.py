@@ -105,6 +105,33 @@ class ShareServer:
                 content={"status": "canceling"}
             )
         
+        # Add this new endpoint for saving in collaborative mode
+        @self.app.post("/save_and_continue")
+        async def save_and_continue(data_update: DataUpdate):
+            """Save data without shutting down - for collaborative mode"""
+            if len(data_update.data) > 1_000_000:
+                return JSONResponse(
+                    status_code=400,
+                    content={"error": "Dataset too large"}
+                )
+            
+            updated_df = pd.DataFrame(data_update.data)
+            if self.original_type == "polars":
+                self.df = updated_df
+            else:
+                self.df = updated_df
+                
+            print("Updated DataFrame from collaborative save:\n", self.df)
+            
+            # Broadcast data update to all users
+            if self.collaborative_mode:
+                await self.broadcast({
+                    "type": "data_sync",
+                    "message": "Data has been updated by another user"
+                })
+            
+            return {"status": "success", "message": "Data saved without shutting down"}
+
         @self.app.websocket("/ws")
         async def websocket_endpoint(websocket: WebSocket):
             await websocket.accept()
@@ -299,6 +326,17 @@ class ShareServer:
                             "rowId": row_id,
                             "userId": user_id,
                             "operationId": operation_id
+                        })
+                    
+                    elif message_type == "user_finished":
+                        # User is leaving but server continues for others
+                        print(f"User {user_id} is finishing their session")
+                        
+                        # Let everyone know this user is leaving
+                        await self.broadcast({
+                            "type": "user_finished",
+                            "userId": user_id,
+                            "name": self.collaborators[user_id].name if user_id in self.collaborators else user_name
                         })
             
             except WebSocketDisconnect:
