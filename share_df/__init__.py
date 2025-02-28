@@ -1,6 +1,9 @@
+import warnings
 import pandas as pd
 import polars as pl
 from typing import Union
+
+warnings.filterwarnings("ignore", message="Pydantic serializer warnings")
 
 __version__ = "0.1.0"
 __all__ = ["pandaBear"]
