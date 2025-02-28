@@ -5,7 +5,7 @@ from typing import Union
 __version__ = "0.1.0"
 __all__ = ["pandaBear"]
 
-def pandaBear(df: Union[pd.DataFrame, pl.DataFrame], use_iframe: bool = False, collaborative: bool = False, share_with: Union[str, list] = None) -> Union[pd.DataFrame, pl.DataFrame]:
+def pandaBear(df: Union[pd.DataFrame, pl.DataFrame], use_iframe: bool = False, collaborative: bool = True, share_with: Union[str, list] = None) -> Union[pd.DataFrame, pl.DataFrame]:
     """
     Opens an interactive web editor for a pandas or polars DataFrame with authentication.
     
