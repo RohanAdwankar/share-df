@@ -1,8 +1,10 @@
-function editorApp(isCollaborative) {
+// Update the function signature to accept testMode parameter
+function editorApp(isCollaborative, isTestMode = false) {
     return {
-        // State variables
+        // Add isTestMode to state variables
         table: null,
         isCollaborative,
+        isTestMode,
         loading: true,
         loadingText: 'Loading data...',
         tableData: [],
@@ -26,23 +28,25 @@ function editorApp(isCollaborative) {
                 this.setupWebSocket();
             }
             
-            // Show column rename tooltip after a short delay
-            setTimeout(() => {
-                const tooltip = document.getElementById('column-rename-tooltip');
-                if (tooltip) {
-                    tooltip.style.display = 'block';
-                    
-                    // Auto-hide after 10 seconds
-                    setTimeout(() => {
-                        tooltip.style.display = 'none';
-                    }, 10000);
-                    
-                    // Handle dismiss button
-                    document.getElementById('dismiss-tooltip')?.addEventListener('click', () => {
-                        tooltip.style.display = 'none';
-                    });
-                }
-            }, 2000);
+            // Only show tooltip in non-test mode
+            if (!this.isTestMode) {
+                setTimeout(() => {
+                    const tooltip = document.getElementById('column-rename-tooltip');
+                    if (tooltip) {
+                        tooltip.style.display = 'block';
+                        
+                        // Auto-hide after 10 seconds
+                        setTimeout(() => {
+                            tooltip.style.display = 'none';
+                        }, 10000);
+                        
+                        // Handle dismiss button
+                        document.getElementById('dismiss-tooltip')?.addEventListener('click', () => {
+                            tooltip.style.display = 'none';
+                        });
+                    }
+                }, 2000);
+            }
         },
         
         // Load data from the server
@@ -1031,9 +1035,11 @@ function editorApp(isCollaborative) {
                     
                     // Count active collaborators (excluding self)
                     const activeCollaborators = Object.keys(this.collaborators).length;
+                    
+                    // In test mode, skip confirmations
                     if (activeCollaborators === 0) {
                         // No other collaborators are present, shut down the server
-                        if (!confirm('You are the only user connected. Do you want to close the editor and save your changes?')) return;
+                        if (!this.isTestMode && !confirm('You are the only user connected. Do you want to close the editor and save your changes?')) return;
                         
                         const response = await fetch('/shutdown', { method: 'POST' });
                         if (response.ok) {
@@ -1050,7 +1056,7 @@ function editorApp(isCollaborative) {
                         }
                     } else {
                         // Other collaborators are active, just leave the session
-                        if (!confirm(`There are ${activeCollaborators} other collaborator(s) working on this file. Do you want to save your changes and exit?`)) return;
+                        if (!this.isTestMode && !confirm(`There are ${activeCollaborators} other collaborator(s) working on this file. Do you want to save your changes and exit?`)) return;
                         
                         // Notify others we're leaving
                         if (this.socket && this.isConnected) {
@@ -1077,7 +1083,7 @@ function editorApp(isCollaborative) {
                 }
             } else {
                 // Original behavior for non-collaborative mode
-                if (!confirm('Are you sure you want to send the data back and close the editor connection?')) return;
+                if (!this.isTestMode && !confirm('Are you sure you want to send the data back and close the editor connection?')) return;
                 try {
                     await this.saveData();
                     const response = await fetch('/shutdown', { method: 'POST' });
@@ -1102,7 +1108,7 @@ function editorApp(isCollaborative) {
         
         // Cancel changes and close the editor
         async cancelChanges() {
-            if (!confirm('Are you sure you want to discard all changes and close the editor?')) return;
+            if (!this.isTestMode && !confirm('Are you sure you want to discard all changes and close the editor?')) return;
             try {
                 const response = await fetch('/cancel', { method: 'POST' });
                 if (response.ok) {
