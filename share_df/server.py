@@ -43,6 +43,8 @@ class ShareServer:
         self.collaborators: Dict[str, CollaboratorInfo] = {}
         self.cell_editors: Dict[str, str] = {}  # Maps cell ID to user ID of current editor
         
+        self.added_columns = []
+        
         if isinstance(df, pl.DataFrame):
             self.original_type = "polars"
             self.df = df.to_pandas()
@@ -222,7 +224,8 @@ class ShareServer:
                 await websocket.send_json({
                     "type": "init",
                     "userId": user_id,
-                    "collaborators": [collab.dict() for collab in self.collaborators.values()]
+                    "collaborators": [collab.dict() for collab in self.collaborators.values()],
+                    "addedColumns": self.added_columns  # Send list of added columns to new users
                 })
                 
                 # Notify other users about the new user
@@ -380,6 +383,9 @@ class ShareServer:
                         operation_id = message.get("operationId", "") # Pass through the operation ID
                         
                         logger.info(f"User {user_id} added column: {column_name}")
+                        
+                        if column_name and column_name not in self.added_columns:
+                            self.added_columns.append(column_name)
                         
                         # Broadcast to everyone
                         await self.broadcast({

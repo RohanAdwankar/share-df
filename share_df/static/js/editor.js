@@ -438,6 +438,42 @@ function editorApp(isCollaborative, isTestMode = false) {
                             this.collaborators[user.id] = user;
                         }
                     });
+                    
+                    // Handle any columns that were added before this user joined
+                    if (message.addedColumns && Array.isArray(message.addedColumns)) {
+                        message.addedColumns.forEach(columnName => {
+                            // Check if column already exists in the table
+                            const existingColumns = this.table.getColumns().map(col => col.getField());
+                            if (!existingColumns.includes(columnName)) {
+                                const columnNumber = parseInt(columnName.replace('New Column ', ''));
+                                if (!isNaN(columnNumber) && columnNumber > this.columnCount) {
+                                    this.columnCount = columnNumber;
+                                }
+                                
+                                this.table.addColumn({
+                                    title: columnName,
+                                    field: columnName,
+                                    editor: true,
+                                    sorter: "string",
+                                    headerClick: (e, column) => {
+                                        if (e.shiftKey) {
+                                            e.stopPropagation();
+                                            this.editColumnHeader(e, column);
+                                            return false;
+                                        }
+                                        return true;
+                                    },
+                                    cellMouseEnter: (e, cell) => {
+                                        if (this.isCollaborative && this.isConnected) {
+                                            const row = cell.getRow().getPosition() - 1;
+                                            const column = cell.getColumn().getField();
+                                            this.sendCursorPosition(row, column);
+                                        }
+                                    }
+                                }, false);
+                            }
+                        });
+                    }
                     break;
                     
                 case "user_joined":
