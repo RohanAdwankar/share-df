@@ -18,7 +18,7 @@ import json
 import uuid
 
 class ShareServer:
-    def __init__(self, df: Union[pd.DataFrame, pl.DataFrame], collaborative_mode: bool = False):
+    def __init__(self, df: Union[pd.DataFrame, pl.DataFrame], collaborative_mode: bool = True):
         self.app = FastAPI()
         self.shutdown_event = threading.Event()
         self.collaborative_mode = collaborative_mode

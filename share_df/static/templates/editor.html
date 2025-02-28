@@ -28,13 +28,13 @@
                             <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v12m6-6H6"></path>
                             </svg>
-                            Add Column
+                            Column
                         </button>
                         <button @click="addNewRow()" class="button add-button">
                             <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v12m6-6H6"></path>
                             </svg>
-                            Add Row
+                            Row
                         </button>
                     </div>
                     
@@ -51,7 +51,7 @@
                         <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
                         </svg>
-                        <span x-text="isCollaborative ? 'Save & Exit' : 'Send Data'"></span>
+                        <span x-text="isCollaborative ? 'Done' : 'Send Data'"></span>
                     </button>
                     
                     <template x-if="!isCollaborative">
