@@ -837,6 +837,39 @@ function editorApp(isCollaborative, isTestMode = false) {
                         document.querySelectorAll(`.user-cursor-absolute[data-user-id="${message.userId}"]`).forEach(el => el.remove());
                     }
                     break;
+
+                case "dtype_error":
+                    // Handle dtype validation error
+                    this.handleDtypeError(message);
+                    break;
+            }
+        },
+        
+        // Handle dtype validation errors
+        handleDtypeError(message) {
+            const { rowId, column, value, expected_dtype, message: errorMsg } = message;
+            
+            // Show error toast
+            this.showToast(errorMsg, 'error');
+            
+            // Try to find and highlight the cell
+            const rows = this.table.getRows();
+            if (rows && rowId < rows.length) {
+                const row = rows[rowId];
+                if (row) {
+                    const cell = row.getCell(column);
+                    if (cell && cell.getElement()) {
+                        const element = cell.getElement();
+                        
+                        // Add visual error indication
+                        element.style.backgroundColor = "rgba(239, 68, 68, 0.2)"; // Light red
+                        
+                        // Reset after a delay
+                        setTimeout(() => {
+                            element.style.backgroundColor = "";
+                        }, 2000);
+                    }
+                }
             }
         },
         
@@ -1146,9 +1179,35 @@ function editorApp(isCollaborative, isTestMode = false) {
             const toast = document.createElement('div');
             toast.className = `toast ${type}`;
             toast.textContent = message;
+            
+            // Create dismiss button for error toasts
+            if (type === 'error') {
+                toast.style.backgroundColor = "#ef4444";
+                toast.style.color = "white";
+                toast.style.padding = "10px 15px";
+                toast.style.borderLeft = "4px solid #b91c1c";
+                
+                const dismissBtn = document.createElement('button');
+                dismissBtn.textContent = '×';
+                dismissBtn.style.marginLeft = '10px';
+                dismissBtn.style.background = 'none';
+                dismissBtn.style.border = 'none';
+                dismissBtn.style.color = 'white';
+                dismissBtn.style.fontSize = '18px';
+                dismissBtn.style.cursor = 'pointer';
+                dismissBtn.style.fontWeight = 'bold';
+                dismissBtn.onclick = () => toast.remove();
+                
+                toast.appendChild(dismissBtn);
+            }
+            
             const container = document.getElementById('toast-container') || document.body;
             container.appendChild(toast);
-            setTimeout(() => toast.remove(), 2300);
+            
+            // Auto dismiss after a longer time for errors
+            setTimeout(() => {
+                if (toast.parentNode) toast.remove();
+            }, type === 'error' ? 5000 : 2300);
         },
         
         // Generate a random color for the user

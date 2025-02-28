@@ -22,7 +22,7 @@ from .testing import is_test_mode
 logger = logging.getLogger("share_df")
 
 class ShareServer:
-    def __init__(self, df: Union[pd.DataFrame, pl.DataFrame], collaborative_mode: bool = True, test_mode: bool = False, log_level: str = "CRITICAL"):
+    def __init__(self, df: Union[pd.DataFrame, pl.DataFrame], collaborative_mode: bool = True, test_mode: bool = False, log_level: str = "CRITICAL", strict_dtype: bool = True):
         # Configure logging level
         log_level = log_level.upper()
         numeric_level = getattr(logging, log_level, logging.CRITICAL)
@@ -42,6 +42,7 @@ class ShareServer:
         self.active_connections: Dict[str, WebSocket] = {}
         self.collaborators: Dict[str, CollaboratorInfo] = {}
         self.cell_editors: Dict[str, str] = {}  # Maps cell ID to user ID of current editor
+        self.strict_dtype = strict_dtype
         
         self.added_columns = []
         self.added_rows_count = 0
@@ -316,47 +317,7 @@ class ShareServer:
                         })
                         
                     elif message_type == "cell_edit":
-                        # User edited a cell
-                        row_id = message.get("rowId")
-                        column = message.get("column")
-                        value = message.get("value")
-                        
-                        logger.debug(f"Cell edit from {user_id}: [{row_id}, {column}] = {value}")
-                        
-                        # Update the dataframe
-                        if row_id is not None and column is not None:
-                            try:
-                                row_index = int(row_id) if isinstance(row_id, str) and row_id.isdigit() else row_id
-                                if isinstance(row_index, int) and 0 <= row_index < len(self.df):
-                                    # Explicitly convert the value to match the column type if possible
-                                    try:
-                                        existing_val = self.df.at[row_index, column]
-                                        if isinstance(existing_val, (int, float)) and not isinstance(value, bool):
-                                            if isinstance(existing_val, int):
-                                                value = int(float(value)) if value else 0
-                                            else:
-                                                value = float(value) if value else 0.0
-                                    except (ValueError, TypeError):
-                                        # If conversion fails, use the value as is
-                                        pass
-                                    
-                                    self.df.at[row_index, column] = value
-                                    
-                                    if row_index < len(self.current_data):
-                                        self.current_data[row_index][column] = value
-                                    
-                                    logger.debug(f"Updated DataFrame at [{row_index}, {column}] = {value}")
-                            except Exception as e:
-                                logger.error(f"Error updating DataFrame: {e}")
-                        
-                        # Broadcast edit to EVERYONE (including the sender for confirmation)
-                        await self.broadcast({
-                            "type": "cell_edit",
-                            "rowId": row_id,
-                            "column": column,
-                            "value": value,
-                            "userId": user_id
-                        })
+                        await self.handle_cell_edit(message, websocket)
                         
                     elif message_type == "cursor_position":
                         # User moved to a specific cell - this replaces cursor_move with cell tracking
@@ -491,6 +452,88 @@ class ShareServer:
                 if user_id in self.collaborators:
                     del self.collaborators[user_id]
     
+    async def handle_cell_edit(self, message, websocket):
+        """Handle a cell edit message from a client"""
+        # Extract message data
+        row_id = message.get("rowId")
+        column = message.get("column")
+        value = message.get("value")
+        
+        # Validate the data
+        if row_id is None or column is None:
+            return
+        
+        try:
+            row_index = int(row_id)
+            
+            # Check if the column exists
+            if column not in self.df.columns:
+                return
+            
+            # DTYPE VALIDATION: Check if the value is compatible with column dtype
+            if self.strict_dtype:
+                col_dtype = self.df[column].dtype
+                try:
+                    # Try to convert the value to the column's dtype
+                    converted_value = self._convert_value_to_dtype(value, col_dtype)
+                    value = converted_value
+                except (ValueError, TypeError):
+                    # Send error message to the client
+                    await self.send_dtype_error(websocket, row_id, column, value, col_dtype)
+                    return
+            
+            # Apply the edit
+            self.df.at[row_index, column] = value
+            
+            # Forward message to all other clients
+            await self.broadcast(message)
+            
+            # Mark that changes have been made
+            self.changes_made = True
+            
+        except Exception as e:
+            logger.error(f"Error handling cell edit: {e}")
+    
+    def _convert_value_to_dtype(self, value, dtype):
+        """Convert a value to the specified dtype"""
+        if pd.api.types.is_integer_dtype(dtype):
+            if value == '' or value is None:
+                return pd.NA if hasattr(pd, 'NA') else np.nan
+            return int(value)
+        elif pd.api.types.is_float_dtype(dtype):
+            if value == '' or value is None:
+                return np.nan
+            return float(value)
+        elif pd.api.types.is_bool_dtype(dtype):
+            if value == '' or value is None:
+                return pd.NA if hasattr(pd, 'NA') else np.nan
+            if isinstance(value, str):
+                value = value.lower()
+                if value in ('true', 'yes', '1', 'y', 't'):
+                    return True
+                elif value in ('false', 'no', '0', 'n', 'f'):
+                    return False
+            return bool(value)
+        elif pd.api.types.is_datetime64_dtype(dtype):
+            if value == '' or value is None:
+                return pd.NaT
+            return pd.to_datetime(value)
+        else:
+            # Default: convert to string for object/string types
+            return str(value) if value is not None else value
+    
+    async def send_dtype_error(self, websocket, row_id, column, value, dtype):
+        """Send a data type validation error message to the client"""
+        error_message = {
+            "type": "dtype_error",
+            "rowId": row_id,
+            "column": column,
+            "value": value,
+            "expected_dtype": str(dtype),
+            "message": f"Value '{value}' is not compatible with column type {dtype}"
+        }
+        await websocket.send_json(error_message)
+    
     async def broadcast(self, message: dict, exclude: str = None):
         """Broadcast a message to all connected clients except the excluded one"""
         msg_type = message.get('type', 'unknown')
@@ -597,8 +640,8 @@ class ShareServer:
             url = f"http://localhost:{port}"
             return url, self.shutdown_event
         
-def run_server(df: pd.DataFrame, use_iframe: bool = False, collaborative: bool = False, test_mode: bool = False, log_level: str = "CRITICAL"):
-    server = ShareServer(df, collaborative_mode=collaborative, test_mode=test_mode, log_level=log_level)
+def run_server(df: pd.DataFrame, use_iframe: bool = False, collaborative: bool = False, test_mode: bool = False, log_level: str = "CRITICAL", strict_dtype: bool = True):
+    server = ShareServer(df, collaborative_mode=collaborative, test_mode=test_mode, log_level=log_level, strict_dtype=strict_dtype)
     url, shutdown_event = server.serve(use_iframe=use_iframe)
     return url, shutdown_event, server
 
@@ -641,7 +684,7 @@ def run_ngrok(url, emails, shutdown_event):
             print(f"Error setting up ngrok: {e}")
             shutdown_event.set()
 
-def start_editor(df, use_iframe: bool = False, collaborative: bool = False, share_with: List[str] = None, test_mode: bool = False, log_level: str = "CRITICAL", local: bool = False):
+def start_editor(df, use_iframe: bool = False, collaborative: bool = False, share_with: List[str] = None, test_mode: bool = False, log_level: str = "CRITICAL", local: bool = False, strict_dtype: bool = True):
     
     load_dotenv()
 
@@ -649,7 +692,15 @@ def start_editor(df, use_iframe: bool = False, collaborative: bool = False, shar
         logger.info("Starting server with DataFrame:")
         logger.info(df)
 
-    url, shutdown_event, server = run_server(df, use_iframe=use_iframe, collaborative=collaborative, test_mode=test_mode, log_level=log_level)
+    url, shutdown_event, server = run_server(
+        df, 
+        use_iframe=use_iframe, 
+        collaborative=collaborative, 
+        test_mode=test_mode, 
+        log_level=log_level, 
+        strict_dtype=strict_dtype
+    )
+    
     try:
         from google.colab import output
         # If that works we're in Colab
