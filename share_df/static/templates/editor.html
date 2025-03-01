@@ -7,7 +7,7 @@
     <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/tabulator/5.4.4/js/tabulator.min.js"></script>
     <script defer src="https://unpkg.com/alpinejs@3.12.0/dist/cdn.min.js"></script>
 </head>
-<body x-data="editorApp({{ collaborative|lower }})" x-init="init()">
+<body x-data="editorApp({{ collaborative|lower }}, {{ test_mode|lower }})" x-init="init()">
     <div id="loading-overlay" class="loading-overlay" x-show="loading">
         <div class="loading-spinner"></div>
         <div id="loading-text" class="loading-text" x-text="loadingText"></div>
@@ -82,7 +82,8 @@
             </template>
         </header>
         
-        <div id="column-rename-tooltip" class="tooltip-box" style="display: none;">
+        <div id="column-rename-tooltip" class="tooltip-box" style="display: none;" 
+             x-show="!isTestMode">
             <div class="tooltip-content">
                 <div class="tooltip-icon">💡</div>
                 <div class="tooltip-text">

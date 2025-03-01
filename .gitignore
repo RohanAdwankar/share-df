@@ -162,3 +162,7 @@ cython_debug/
 #.idea/
 tests/workspace.py
 tests/test.sh
+run.sh
+/tests/page_source
+/tests/screenshots
+.DS_Store

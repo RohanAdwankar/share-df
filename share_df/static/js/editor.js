@@ -1,8 +1,10 @@
-function editorApp(isCollaborative) {
+// Update the function signature to accept testMode parameter
+function editorApp(isCollaborative, isTestMode = false) {
     return {
-        // State variables
+        // Add isTestMode to state variables
         table: null,
         isCollaborative,
+        isTestMode,
         loading: true,
         loadingText: 'Loading data...',
         tableData: [],
@@ -26,23 +28,26 @@ function editorApp(isCollaborative) {
                 this.setupWebSocket();
             }
             
-            // Show column rename tooltip after a short delay
-            setTimeout(() => {
-                const tooltip = document.getElementById('column-rename-tooltip');
-                if (tooltip) {
-                    tooltip.style.display = 'block';
-                    
-                    // Auto-hide after 10 seconds
-                    setTimeout(() => {
-                        tooltip.style.display = 'none';
-                    }, 10000);
-                    
-                    // Handle dismiss button
-                    document.getElementById('dismiss-tooltip')?.addEventListener('click', () => {
-                        tooltip.style.display = 'none';
-                    });
-                }
-            }, 2000);
+            // Only show tooltip in non-test mode
+            if (!this.isTestMode) {
+                setTimeout(() => {
+                    const tooltip = document.getElementById('column-rename-tooltip');
+                    if (tooltip) {
+                        tooltip.style.display = 'block';
+                        
+                        // Auto-hide after 10 seconds
+                        setTimeout(() => {
+                            tooltip.style.display = 'none';
+                        }, 10000);
+                        
+                        // Handle dismiss button
+                        document.getElementById('dismiss-tooltip')?.addEventListener('click', () => {
+                            tooltip.style.display = 'none';
+                        });
+                    }
+                }, 2000);
+            }
+            setupTooltip();
         },
         
         // Load data from the server
@@ -362,7 +367,7 @@ function editorApp(isCollaborative) {
                     this.showToast(`Connection closed: ${event.reason}`, 'error');
                 } else {
                     // Connection died
-                    this.showToast("Connection lost. Please refresh the page.", 'error');
+                    this.showToast("Closing the connection!", 'error');
                 }
             };
             
@@ -433,6 +438,67 @@ function editorApp(isCollaborative) {
                             this.collaborators[user.id] = user;
                         }
                     });
+                    
+                    // CRITICAL FIX: Always use server's current data if it exists
+                    if (message.currentData && Array.isArray(message.currentData) && message.currentData.length > 0) {
+                        console.log("Received current data from server with:", 
+                            message.currentData.length, "rows and columns:", 
+                            Object.keys(message.currentData[0] || {}).join(", "));
+                        
+                        // Always use the server's data which includes all columns and all rows
+                        this.tableData = message.currentData;
+                        
+                        // Update column count if needed
+                        if (message.addedColumns && Array.isArray(message.addedColumns)) {
+                            message.addedColumns.forEach(colName => {
+                                const columnNumber = parseInt(colName.replace('New Column ', ''));
+                                if (!isNaN(columnNumber) && columnNumber > this.columnCount) {
+                                    this.columnCount = columnNumber;
+                                }
+                            });
+                        }
+                        
+                        // If table is already initialized, completely rebuild it with the current data
+                        if (this.table) {
+                            console.log("Rebuilding table with current server data");
+                            
+                            // Capture current column settings
+                            const existingColumns = this.table.getColumns().map(col => ({
+                                field: col.getField(),
+                                title: col.getDefinition().title
+                            }));
+                            
+                            // Define all columns, including ones from current data
+                            let allColumns = Object.keys(this.tableData[0] || {}).map(key => {
+                                const existingCol = existingColumns.find(col => col.field === key);
+                                return {
+                                    title: existingCol?.title || key,
+                                    field: key,
+                                    editor: true,
+                                    sorter: "string",
+                                    headerClick: (e, column) => {
+                                        if (e.shiftKey) {
+                                            e.stopPropagation();
+                                            this.editColumnHeader(e, column);
+                                            return false;
+                                        }
+                                        return true;
+                                    },
+                                    cellMouseEnter: (e, cell) => {
+                                        if (this.isCollaborative && this.isConnected) {
+                                            const row = cell.getRow().getPosition() - 1;
+                                            const column = cell.getColumn().getField();
+                                            this.sendCursorPosition(row, column);
+                                        }
+                                    }
+                                };
+                            });
+                            
+                            // Completely rebuild table with all current data
+                            this.table.setColumns(allColumns);
+                            this.table.setData(this.tableData);
+                        }
+                    }
                     break;
                     
                 case "user_joined":
@@ -538,40 +604,104 @@ function editorApp(isCollaborative) {
                         const value = message.value;
                         
                         try {
-                            let success = false;
-                            
-                            // Try direct DOM update first
-                            const cellElements = document.querySelectorAll(`.tabulator-cell[tabulator-field="${column}"]`);
-                            
-                            if (cellElements && cellElements.length > rowId) {
-                                const cellElement = cellElements[rowId];
-                                if (cellElement) {
-                                    cellElement.innerText = value;
-                                    cellElement.style.backgroundColor = "rgba(59, 130, 246, 0.3)";
-                                    setTimeout(() => {
-                                        cellElement.style.backgroundColor = "";
-                                    }, 1000);
-                                    success = true;
+                            // Ensure the column exists before attempting to edit its value
+                            if (this.table) {
+                                const existingColumns = this.table.getColumns().map(col => col.getField());
+                                
+                                if (!existingColumns.includes(column)) {
+                                    // Add the missing column first
+                                    console.log(`Adding missing column ${column} before editing cell`);
                                     
-                                    // Also update the data model
-                                    const allData = this.table.getData();
-                                    if (rowId < allData.length) {
-                                        allData[rowId][column] = value;
+                                    const columnNumber = parseInt(column.replace('New Column ', ''));
+                                    if (!isNaN(columnNumber) && columnNumber > this.columnCount) {
+                                        this.columnCount = columnNumber;
+                                    }
+                                    
+                                    this.table.addColumn({
+                                        title: column,
+                                        field: column,
+                                        editor: true,
+                                        sorter: "string",
+                                        headerClick: (e, column) => {
+                                            if (e.shiftKey) {
+                                                e.stopPropagation();
+                                                this.editColumnHeader(e, column);
+                                                return false;
+                                            }
+                                            return true;
+                                        },
+                                        cellMouseEnter: (e, cell) => {
+                                            if (this.isCollaborative && this.isConnected) {
+                                                const row = cell.getRow().getPosition() - 1;
+                                                const column = cell.getColumn().getField();
+                                                this.sendCursorPosition(row, column);
+                                            }
+                                        }
+                                    }, false);
+                                }
+                                
+                                // Get the current data
+                                const allData = this.table.getData();
+                                
+                                // Ensure the row exists
+                                if (rowId >= allData.length) {
+                                    console.log(`Row ${rowId} doesn't exist, adding empty rows`);
+                                    
+                                    // Add missing rows with empty values
+                                    const columns = this.table.getColumns();
+                                    const emptyRows = [];
+                                    
+                                    for (let i = allData.length; i <= rowId; i++) {
+                                        const newRow = {};
+                                        columns.forEach(col => {
+                                            newRow[col.getField()] = '';
+                                        });
+                                        emptyRows.push(newRow);
+                                    }
+                                    
+                                    // Add the rows
+                                    this.table.addData(emptyRows);
+                                    
+                                    // Refresh allData
+                                    const updatedData = this.table.getData();
+                                    
+                                    // Now set the value
+                                    if (rowId < updatedData.length) {
+                                        updatedData[rowId][column] = value;
+                                        
+                                        // Update the table with the full updated data
+                                        this.table.setData(updatedData);
+                                    }
+                                } else {
+                                    // Row exists, just update the cell
+                                    allData[rowId][column] = value;
+                                    this.table.updateData(allData);
+                                    
+                                    // Also attempt direct DOM update for visual feedback
+                                    const cellElements = document.querySelectorAll(`.tabulator-cell[tabulator-field="${column}"]`);
+                                    if (cellElements && cellElements.length > rowId) {
+                                        const cellElement = cellElements[rowId];
+                                        if (cellElement) {
+                                            cellElement.innerText = value;
+                                            cellElement.style.backgroundColor = "rgba(59, 130, 246, 0.3)";
+                                            setTimeout(() => {
+                                                cellElement.style.backgroundColor = "";
+                                            }, 1000);
+                                        }
                                     }
                                 }
-                            }
-                            
-                            // If DOM update failed, update data model and redraw
-                            if (!success) {
-                                const allData = this.table.getData();
-                                if (rowId < allData.length) {
-                                    allData[rowId][column] = value;
-                                    this.table.setData(allData);
-                                    success = true;
-                                }
+                                
+                                // Update our local data model
+                                this.tableData = this.table.getData();
                             }
                         } catch (e) {
                             console.error("Error updating cell:", e);
+                            // Last resort: reload the entire table
+                            this.loadData().then(data => {
+                                if (data && data.length > 0) {
+                                    this.table.setData(data);
+                                }
+                            });
                         }
                     }
                     break;
@@ -602,40 +732,52 @@ function editorApp(isCollaborative) {
                     if (message.userId !== this.userId) {
                         const columnName = message.columnName;
                         
-                        // Add the column to our table
-                        this.table.addColumn({
-                            title: columnName,
-                            field: columnName,
-                            editor: true,
-                            sorter: "string", // Default sorter
-                            // Use headerClick with shift key check
-                            headerClick: (e, column) => {
-                                // If shift key is pressed, rename column, otherwise let default sort behavior happen
-                                if (e.shiftKey) {
-                                    e.stopPropagation(); // Stop the default sort behavior
-                                    this.editColumnHeader(e, column);
-                                    return false; // Prevent default behavior
-                                }
-                                // Let default sort behavior happen for regular clicks
-                                return true;
-                            },
-                            cellMouseEnter: (e, cell) => {
-                                if (this.isCollaborative && this.isConnected) {
-                                    // Convert 1-based to 0-based row position
-                                    const row = cell.getRow().getPosition() - 1;
-                                    const column = cell.getColumn().getField();
-                                    this.sendCursorPosition(row, column);
-                                }
+                        try {
+                            console.log(`Adding new column '${columnName}' from user ${message.userId}`);
+                            
+                            // Check if column already exists to avoid duplicates
+                            const existingColumns = this.table.getColumns().map(col => col.getField());
+                            if (existingColumns.includes(columnName)) {
+                                console.log(`Column '${columnName}' already exists, skipping`);
+                                return;
                             }
-                        }, false);
-                        
-                        // Update our column count
-                        const columnCount = parseInt(columnName.replace('New Column ', ''));
-                        if (!isNaN(columnCount) && columnCount > this.columnCount) {
-                            this.columnCount = columnCount;
+                            
+                            // Add the column to our table
+                            this.table.addColumn({
+                                title: columnName,
+                                field: columnName,
+                                editor: true,
+                                sorter: "string", 
+                                headerClick: (e, column) => {
+                                    if (e.shiftKey) {
+                                        e.stopPropagation();
+                                        this.editColumnHeader(e, column);
+                                        return false;
+                                    }
+                                    return true;
+                                },
+                                cellMouseEnter: (e, cell) => {
+                                    if (this.isCollaborative && this.isConnected) {
+                                        const row = cell.getRow().getPosition() - 1;
+                                        const column = cell.getColumn().getField();
+                                        this.sendCursorPosition(row, column);
+                                    }
+                                }
+                            }, false);
+                            
+                            // Update our column count
+                            const columnCount = parseInt(columnName.replace('New Column ', ''));
+                            if (!isNaN(columnCount) && columnCount > this.columnCount) {
+                                this.columnCount = columnCount;
+                            }
+                            
+                            // Update our local data model
+                            this.tableData = this.table.getData();
+                            
+                            this.showToast(`${this.collaborators[message.userId]?.name || 'Someone'} added column: ${columnName}`);
+                        } catch (e) {
+                            console.error(`Failed to add column '${columnName}':`, e);
                         }
-                        
-                        this.showToast(`${this.collaborators[message.userId]?.name || 'Someone'} added column: ${columnName}`);
                     }
                     break;
                     
@@ -643,17 +785,20 @@ function editorApp(isCollaborative) {
                     // Another user added a row
                     if (message.userId !== this.userId) {
                         try {
-                            // Create a new empty row
+                            // Create a new empty row with all existing columns
                             const columns = this.table.getColumns();
                             const newRow = {};
                             columns.forEach(column => {
                                 newRow[column.getField()] = '';
                             });
                             
-                            // Add the row using direct data update
-                            const currentData = this.table.getData();
-                            currentData.push(newRow);
-                            this.table.setData(currentData);
+                            console.log(`Adding new row from user ${message.userId}`);
+                            
+                            // Add the row with a better approach
+                            this.table.addRow(newRow);
+                            
+                            // Update our local data model
+                            this.tableData = this.table.getData();
                             
                             this.showToast(`${this.collaborators[message.userId]?.name || 'Someone'} added a new row`);
                         } catch (e) {
@@ -692,6 +837,39 @@ function editorApp(isCollaborative) {
                         document.querySelectorAll(`.user-cursor-absolute[data-user-id="${message.userId}"]`).forEach(el => el.remove());
                     }
                     break;
+
+                case "dtype_error":
+                    // Handle dtype validation error
+                    this.handleDtypeError(message);
+                    break;
+            }
+        },
+        
+        // Handle dtype validation errors
+        handleDtypeError(message) {
+            const { rowId, column, value, expected_dtype, message: errorMsg } = message;
+            
+            // Show error toast
+            this.showToast(errorMsg, 'error');
+            
+            // Try to find and highlight the cell
+            const rows = this.table.getRows();
+            if (rows && rowId < rows.length) {
+                const row = rows[rowId];
+                if (row) {
+                    const cell = row.getCell(column);
+                    if (cell && cell.getElement()) {
+                        const element = cell.getElement();
+                        
+                        // Add visual error indication
+                        element.style.backgroundColor = "rgba(239, 68, 68, 0.2)"; // Light red
+                        
+                        // Reset after a delay
+                        setTimeout(() => {
+                            element.style.backgroundColor = "";
+                        }, 2000);
+                    }
+                }
             }
         },
         
@@ -1001,9 +1179,35 @@ function editorApp(isCollaborative) {
             const toast = document.createElement('div');
             toast.className = `toast ${type}`;
             toast.textContent = message;
+            
+            // Create dismiss button for error toasts
+            if (type === 'error') {
+                toast.style.backgroundColor = "#ef4444";
+                toast.style.color = "white";
+                toast.style.padding = "10px 15px";
+                toast.style.borderLeft = "4px solid #b91c1c";
+                
+                const dismissBtn = document.createElement('button');
+                dismissBtn.textContent = '×';
+                dismissBtn.style.marginLeft = '10px';
+                dismissBtn.style.background = 'none';
+                dismissBtn.style.border = 'none';
+                dismissBtn.style.color = 'white';
+                dismissBtn.style.fontSize = '18px';
+                dismissBtn.style.cursor = 'pointer';
+                dismissBtn.style.fontWeight = 'bold';
+                dismissBtn.onclick = () => toast.remove();
+                
+                toast.appendChild(dismissBtn);
+            }
+            
             const container = document.getElementById('toast-container') || document.body;
             container.appendChild(toast);
-            setTimeout(() => toast.remove(), 2300);
+            
+            // Auto dismiss after a longer time for errors
+            setTimeout(() => {
+                if (toast.parentNode) toast.remove();
+            }, type === 'error' ? 5000 : 2300);
         },
         
         // Generate a random color for the user
@@ -1031,9 +1235,11 @@ function editorApp(isCollaborative) {
                     
                     // Count active collaborators (excluding self)
                     const activeCollaborators = Object.keys(this.collaborators).length;
+                    
+                    // In test mode, skip confirmations
                     if (activeCollaborators === 0) {
                         // No other collaborators are present, shut down the server
-                        if (!confirm('You are the only user connected. Do you want to close the editor and save your changes?')) return;
+                        if (!this.isTestMode && !confirm('You are the only user connected. Do you want to close the editor and save your changes?')) return;
                         
                         const response = await fetch('/shutdown', { method: 'POST' });
                         if (response.ok) {
@@ -1050,7 +1256,7 @@ function editorApp(isCollaborative) {
                         }
                     } else {
                         // Other collaborators are active, just leave the session
-                        if (!confirm(`There are ${activeCollaborators} other collaborator(s) working on this file. Do you want to save your changes and exit?`)) return;
+                        if (!this.isTestMode && !confirm(`There are ${activeCollaborators} other collaborator(s) working on this file. Do you want to save your changes and exit?`)) return;
                         
                         // Notify others we're leaving
                         if (this.socket && this.isConnected) {
@@ -1077,7 +1283,7 @@ function editorApp(isCollaborative) {
                 }
             } else {
                 // Original behavior for non-collaborative mode
-                if (!confirm('Are you sure you want to send the data back and close the editor connection?')) return;
+                if (!this.isTestMode && !confirm('Are you sure you want to send the data back and close the editor connection?')) return;
                 try {
                     await this.saveData();
                     const response = await fetch('/shutdown', { method: 'POST' });
@@ -1102,7 +1308,7 @@ function editorApp(isCollaborative) {
         
         // Cancel changes and close the editor
         async cancelChanges() {
-            if (!confirm('Are you sure you want to discard all changes and close the editor?')) return;
+            if (!this.isTestMode && !confirm('Are you sure you want to discard all changes and close the editor?')) return;
             try {
                 const response = await fetch('/cancel', { method: 'POST' });
                 if (response.ok) {
@@ -1179,3 +1385,38 @@ function editorApp(isCollaborative) {
         }
     };
 }
+
+function setupTooltip() {
+    const tooltip = document.getElementById('column-rename-tooltip');
+    const dismissButton = document.getElementById('dismiss-tooltip');
+    
+    // Show tooltip after a slight delay
+    setTimeout(() => {
+        if (tooltip) tooltip.style.display = 'block';
+    }, 1000);
+    
+    // Dismiss with button click
+    if (dismissButton) {
+        dismissButton.addEventListener('click', () => {
+            hideTooltip();
+        });
+    }
+    
+    // Dismiss with Escape key
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && tooltip && tooltip.style.display !== 'none') {
+            hideTooltip();
+        }
+    });
+    
+    function hideTooltip() {
+        if (tooltip) {
+            tooltip.style.opacity = '0';
+            tooltip.style.transform = 'translateY(10px)';
+            setTimeout(() => {
+                tooltip.style.display = 'none';
+            }, 300);
+        }
+    }
+}
+

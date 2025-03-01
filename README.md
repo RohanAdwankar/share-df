@@ -12,12 +12,18 @@
 </p>
 <video src="https://github.com/user-attachments/assets/fd8e9ea4-b0d5-4d61-abfc-cd584ba7af44" controls="controls" muted="muted" style="max-width:100%;"></video>
 
+## Problem
+Data scientists use Pandas/Polars dataframes to work with their data, but nontechnical contributors need a GUI like Excel.
+This is frustrating because:
+1. The developers have to manage the back and forth for converting to Excel, downloading the file, uploading it back into thier IDE, and then reformatting the data.
+2. The code previously written to work with the DF may fail if during the conversion process the formatting changes signficantly
+3. It becomes difficult to manage a large amount of edits and different versions of the Excel files especially if the developers are using dataframe versioning tools like Weights and Biases Artifact logging.
+
 ## Goal      
 
-This package enables cross-collaboration between nontechnical and technical contributors by allowing developers to generate a URL for free with one line of code that they can then send to nontechnical contributors enabling them to modify the dataframe with a web app. Then, they can send it back to the developer, directly generating the modified dataframe, maintaining code continuity, and removing the burden of file transfer and conversion to other file formats.
+Developers generate a URL for free that they can then send to nontechnical contributors enabling them to modify the dataframe with a web app.
 
 ## Technical Contributor Features
-- ```pip install share-df``` 
 - one function call to generate a link to send, accessible anywhere 
 - changes made by the client are received back as a dataframe for seamless development
 - compatale for both pandas and polars dataframes
@@ -25,13 +31,15 @@ This package enables cross-collaboration between nontechnical and technical cont
 ## Nontechnical Contributor Features
 - Easy Google OAuth login 
 - Seamless UI to modify the dataframe 
-    * Change column names
+    * Rename columns (Shift Click)
     * Drag around columns
-    * Change all values
-    * Rename columns
+    * Modify values
     * Add new columns and rows
 - Send the results back with the click of a button
 - Work with large amounts of data quickly
+- Multiple collaborator support 
+    * See which cells other collaborators are editing
+    * Sync all changes other collaborators live
 
 ## How to Run
 1. ```pip install share-df```
@@ -60,7 +68,9 @@ print(df)
 
 - As per the demo, currently, the site takes 6 seconds to load a million rows.
 - After loading, it can handle cell changes, row additions, column sorting, new columns, fast scrolling, and sending the data back frictionlessly.
-- That being said given interest I can improve this experience.
+- That being said given interest I can optimize this.
+
+<video src="https://github.com/user-attachments/assets/373ec28c-d61e-467b-9b54-ff6225126396" controls="controls" muted="muted" style="max-width:100%;"></video>
 
 ## Google Colab
 - This code works by creating a localhost and then tunneling traffic to make it accessible to other people.
@@ -72,18 +82,10 @@ print(df)
 - For now, there is an optional parameter that allows you to use the editor in IFrame mode.
 - Check out a [demo notebook](https://colab.research.google.com/drive/1LUm6vmb-aWBqLk5h9mcLPadQFzAEXiDq?usp=sharing) here.
 
-<video src="https://github.com/user-attachments/assets/373ec28c-d61e-467b-9b54-ff6225126396" controls="controls" muted="muted" style="max-width:100%;"></video>
 
-## Potential Features
-- Better Dataframe handling (pagination, lazy loading, better frontend for big data)
-- Better Security (input sanitization, CSRF protection, configurable endpoint rate limiting)
-- Better UI (search, dark mode, export option)
-- IFrame Usage Option in Google Colab
-- True Asynchronicity with ipyparallel
-- Code Recreation (instead of overwriting the df just solve the code needed)
-- Multiple authenticated users
-- Data validation for expected column types
 ### Community Requested Features (eg. from the reddit thread)
 &#x2611; 3rd option for discarding changes (completed as of 1.1.0)
 
 &#x2611; FastAPI template for easier maintenance
+
+&#x2611; Multiple authenticated users

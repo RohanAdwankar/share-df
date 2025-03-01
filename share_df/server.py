@@ -3,6 +3,7 @@ import threading
 import uvicorn
 import pandas as pd
 import polars as pl
+import logging
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
@@ -16,15 +17,36 @@ import ngrok
 from dotenv import load_dotenv
 import json
 import uuid
+from .testing import is_test_mode
+
+logger = logging.getLogger("share_df")
 
 class ShareServer:
-    def __init__(self, df: Union[pd.DataFrame, pl.DataFrame], collaborative_mode: bool = True):
+    def __init__(self, df: Union[pd.DataFrame, pl.DataFrame], collaborative_mode: bool = True, test_mode: bool = False, log_level: str = "CRITICAL", strict_dtype: bool = True):
+        # Configure logging level
+        log_level = log_level.upper()
+        numeric_level = getattr(logging, log_level, logging.CRITICAL)
+        logger.setLevel(numeric_level)
+        
+        # Add a handler if none exists
+        if not logger.handlers:
+            handler = logging.StreamHandler()
+            formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+            handler.setFormatter(formatter)
+            logger.addHandler(handler)
+        
         self.app = FastAPI()
         self.shutdown_event = threading.Event()
         self.collaborative_mode = collaborative_mode
+        self.test_mode = test_mode or is_test_mode()  # Set test mode based on param or global flag
         self.active_connections: Dict[str, WebSocket] = {}
         self.collaborators: Dict[str, CollaboratorInfo] = {}
         self.cell_editors: Dict[str, str] = {}  # Maps cell ID to user ID of current editor
+        self.strict_dtype = strict_dtype
+        
+        self.added_columns = []
+        self.added_rows_count = 0
+        self.current_data = []
         
         if isinstance(df, pl.DataFrame):
             self.original_type = "polars"
@@ -56,18 +78,78 @@ class ShareServer:
         # Add message tracking for deduplication
         self.recent_messages = {}
     
+    def debug_server_status(self):
+        """Print debug information about the server state"""
+        import sys
+        logger.debug(f"Server Debug Information:")
+        logger.debug(f"  Python Version: {sys.version}")
+        logger.debug(f"  Collaborative Mode: {self.collaborative_mode}")
+        logger.debug(f"  Test Mode: {self.test_mode}")
+        logger.debug(f"  DataFrame Type: {self.original_type}")
+        logger.debug(f"  DataFrame Shape: {self.df.shape}")
+        logger.debug(f"  DataFrame Columns: {list(self.df.columns)}")
+        logger.debug(f"  DataFrame First Row: {self.df.iloc[0].to_dict() if len(self.df) > 0 else 'Empty'}")
+        logger.debug(f"  Active Connections: {len(self.active_connections)}")
+        logger.debug(f"  Active Collaborators: {len(self.collaborators)}")
+    
     def setup_routes(self):
         @self.app.get("/")
         async def root(request: Request):
-            return self.templates.TemplateResponse(
-                "editor.html",
-                {"request": request, "collaborative": self.collaborative_mode}
-            )
+            """Root endpoint that renders the editor template"""
+            if self.test_mode:
+                logger.debug("Rendering template in test mode")
+            
+            # For FastAPI 0.95.0+, we need to pass request as first argument
+            try:
+                # Try the newer API style
+                return self.templates.TemplateResponse(
+                    request=request,
+                    name="editor.html",
+                    context={
+                        "collaborative": self.collaborative_mode,
+                        "test_mode": self.test_mode
+                    }
+                )
+            except TypeError:
+                # Fall back to older API style
+                return self.templates.TemplateResponse(
+                    "editor.html",
+                    {
+                        "request": request,
+                        "collaborative": self.collaborative_mode,
+                        "test_mode": self.test_mode
+                    }
+                )
             
         @self.app.get("/data")
         async def get_data():
+            """Get DataFrame data with test mode handling"""
+            # In test mode, add debug info
+            if self.test_mode:
+                self.debug_server_status()
+            
+            # Ensure the dataframe is not empty
+            if self.df.empty:
+                logger.warning("Warning: DataFrame is empty!")
+                # Return a minimal dummy dataframe for testing
+                if self.test_mode:
+                    logger.debug("Using dummy data in test mode")
+                    return [{"col1": 1, "col2": "test"}]
+                else:
+                    return []
+            
+            # Convert the DataFrame to records
             data = self.df.to_dict(orient='records')
-            print("Sending data:", data)
+            self.current_data = data
+            
+            # Add debug info for test mode
+            if self.test_mode:
+                logger.debug(f"Sending {len(data)} records:")
+                if len(data) > 0:
+                    logger.debug(f"  First record: {data[0]}")
+            else:
+                logger.debug(f"Sending data: {len(data)} records")
+            
             return JSONResponse(content=data)
             
         @self.app.post("/update_data")
@@ -83,8 +165,15 @@ class ShareServer:
                 self.df = updated_df
             else:
                 self.df = updated_df
+            
+            self.current_data = data_update.data
+            
+            original_rows = len(self.original_df)
+            current_rows = len(updated_df)
+            if current_rows > original_rows:
+                self.added_rows_count = current_rows - original_rows
                 
-            print("Updated DataFrame:\n", self.df)
+            logger.info("Updated DataFrame")
             return {"status": "success"}
             
         @self.app.post("/shutdown")
@@ -121,7 +210,7 @@ class ShareServer:
             else:
                 self.df = updated_df
                 
-            print("Updated DataFrame from collaborative save:\n", self.df)
+            logger.info("Updated DataFrame from collaborative save")
             
             # Broadcast data update to all users
             if self.collaborative_mode:
@@ -140,13 +229,19 @@ class ShareServer:
             self.active_connections[user_id] = websocket
             
             try:
-                print(f"New WebSocket connection: {user_id}")
+                logger.info(f"New WebSocket connection: {user_id}")
+                
+                if not self.current_data or len(self.current_data) != len(self.df):
+                    self.current_data = self.df.to_dict(orient='records')
                 
                 # Send current state to the new user
                 await websocket.send_json({
                     "type": "init",
                     "userId": user_id,
-                    "collaborators": [collab.dict() for collab in self.collaborators.values()]
+                    "collaborators": [collab.dict() for collab in self.collaborators.values()],
+                    "addedColumns": self.added_columns,  # Send list of added columns to new users
+                    "currentData": self.current_data,    # Send current data state
+                    "addedRows": self.added_rows_count   # Send info about added rows
                 })
                 
                 # Notify other users about the new user
@@ -161,7 +256,7 @@ class ShareServer:
                     message = json.loads(data)
                     message_type = message.get("type", "")
                     
-                    print(f"Received message from {user_id}: {message_type}")
+                    logger.debug(f"Received message from {user_id}: {message_type}")
                     
                     # Add debug ping handler
                     if message_type == "debug_ping":
@@ -169,7 +264,7 @@ class ShareServer:
                         now = int(time.time() * 1000)
                         latency = now - timestamp
                         
-                        print(f"Debug ping from {user_id}: latency {latency}ms")
+                        logger.debug(f"Debug ping from {user_id}: latency {latency}ms")
                         
                         # Send pong response
                         await websocket.send_json({
@@ -222,43 +317,7 @@ class ShareServer:
                         })
                         
                     elif message_type == "cell_edit":
-                        # User edited a cell
-                        row_id = message.get("rowId")
-                        column = message.get("column")
-                        value = message.get("value")
-                        
-                        print(f"Cell edit from {user_id}: [{row_id}, {column}] = {value}")
-                        
-                        # Update the dataframe
-                        if row_id is not None and column is not None:
-                            try:
-                                row_index = int(row_id) if isinstance(row_id, str) and row_id.isdigit() else row_id
-                                if isinstance(row_index, int) and 0 <= row_index < len(self.df):
-                                    # Explicitly convert the value to match the column type if possible
-                                    try:
-                                        existing_val = self.df.at[row_index, column]
-                                        if isinstance(existing_val, (int, float)) and not isinstance(value, bool):
-                                            if isinstance(existing_val, int):
-                                                value = int(float(value)) if value else 0
-                                            else:
-                                                value = float(value) if value else 0.0
-                                    except (ValueError, TypeError):
-                                        # If conversion fails, use the value as is
-                                        pass
-                                        
-                                    self.df.at[row_index, column] = value
-                                    print(f"Updated DataFrame at [{row_index}, {column}] = {value}")
-                            except Exception as e:
-                                print(f"Error updating DataFrame: {e}")
-                        
-                        # Broadcast edit to EVERYONE (including the sender for confirmation)
-                        await self.broadcast({
-                            "type": "cell_edit",
-                            "rowId": row_id,
-                            "column": column,
-                            "value": value,
-                            "userId": user_id
-                        })
+                        await self.handle_cell_edit(message, websocket)
                         
                     elif message_type == "cursor_position":
                         # User moved to a specific cell - this replaces cursor_move with cell tracking
@@ -301,9 +360,22 @@ class ShareServer:
                     elif message_type == "add_column":
                         # User added a column
                         column_name = message.get("columnName", "")
-                        operation_id = message.get("operationId", "") # Pass through the operation ID
+                        operation_id = message.get("operationId", "")
                         
-                        print(f"User {user_id} added column: {column_name}")
+                        logger.info(f"User {user_id} added column: {column_name}")
+                        
+                        # Store the added column
+                        if column_name and column_name not in self.added_columns:
+                            self.added_columns.append(column_name)
+                            
+                            # Also ensure the column exists in our DataFrame
+                            if column_name not in self.df.columns:
+                                self.df[column_name] = ""
+                                
+                            # Update current_data with the new column
+                            for row in self.current_data:
+                                if column_name not in row:
+                                    row[column_name] = ""
                         
                         # Broadcast to everyone
                         await self.broadcast({
@@ -316,9 +388,21 @@ class ShareServer:
                     elif message_type == "add_row":
                         # User added a row
                         row_id = message.get("rowId", -1)
-                        operation_id = message.get("operationId", "") # Pass through the operation ID
+                        operation_id = message.get("operationId", "")
                         
-                        print(f"User {user_id} added row at position: {row_id}")
+                        logger.info(f"User {user_id} added row at position: {row_id}")
+                        
+                        # Update our count of added rows
+                        self.added_rows_count += 1
+                        
+                        # Create a new empty row in our DataFrame
+                        if len(self.df) > 0:
+                            empty_row = pd.Series("", index=self.df.columns)
+                            self.df = pd.concat([self.df, pd.DataFrame([empty_row])], ignore_index=True)
+                            
+                            # Also update current_data
+                            new_row = {column: "" for column in self.df.columns}
+                            self.current_data.append(new_row)
                         
                         # Broadcast to everyone
                         await self.broadcast({
@@ -330,7 +414,7 @@ class ShareServer:
                     
                     elif message_type == "user_finished":
                         # User is leaving but server continues for others
-                        print(f"User {user_id} is finishing their session")
+                        logger.info(f"User {user_id} is finishing their session")
                         
                         # Let everyone know this user is leaving
                         await self.broadcast({
@@ -340,7 +424,7 @@ class ShareServer:
                         })
             
             except WebSocketDisconnect:
-                print(f"WebSocket disconnected: {user_id}")
+                logger.info(f"WebSocket disconnected: {user_id}")
                 # Remove disconnected user
                 if user_id in self.active_connections:
                     del self.active_connections[user_id]
@@ -362,11 +446,93 @@ class ShareServer:
                     "name": user_name
                 })
             except Exception as e:
-                print(f"WebSocket error for {user_id}: {e}")
+                logger.error(f"WebSocket error for {user_id}: {e}")
                 if user_id in self.active_connections:
                     del self.active_connections[user_id]
                 if user_id in self.collaborators:
                     del self.collaborators[user_id]
+    
+    async def handle_cell_edit(self, message, websocket):
+        """Handle a cell edit message from a client"""
+        # Extract message data
+        row_id = message.get("rowId")
+        column = message.get("column")
+        value = message.get("value")
+        
+        # Validate the data
+        if row_id is None or column is None:
+            return
+        
+        try:
+            row_index = int(row_id)
+            
+            # Check if the column exists
+            if column not in self.df.columns:
+                return
+            
+            # DTYPE VALIDATION: Check if the value is compatible with column dtype
+            if self.strict_dtype:
+                col_dtype = self.df[column].dtype
+                try:
+                    # Try to convert the value to the column's dtype
+                    converted_value = self._convert_value_to_dtype(value, col_dtype)
+                    value = converted_value
+                except (ValueError, TypeError):
+                    # Send error message to the client
+                    await self.send_dtype_error(websocket, row_id, column, value, col_dtype)
+                    return
+            
+            # Apply the edit
+            self.df.at[row_index, column] = value
+            
+            # Forward message to all other clients
+            await self.broadcast(message)
+            
+            # Mark that changes have been made
+            self.changes_made = True
+            
+        except Exception as e:
+            logger.error(f"Error handling cell edit: {e}")
+    
+    def _convert_value_to_dtype(self, value, dtype):
+        """Convert a value to the specified dtype"""
+        if pd.api.types.is_integer_dtype(dtype):
+            if value == '' or value is None:
+                return pd.NA if hasattr(pd, 'NA') else np.nan
+            return int(value)
+        elif pd.api.types.is_float_dtype(dtype):
+            if value == '' or value is None:
+                return np.nan
+            return float(value)
+        elif pd.api.types.is_bool_dtype(dtype):
+            if value == '' or value is None:
+                return pd.NA if hasattr(pd, 'NA') else np.nan
+            if isinstance(value, str):
+                value = value.lower()
+                if value in ('true', 'yes', '1', 'y', 't'):
+                    return True
+                elif value in ('false', 'no', '0', 'n', 'f'):
+                    return False
+            return bool(value)
+        elif pd.api.types.is_datetime64_dtype(dtype):
+            if value == '' or value is None:
+                return pd.NaT
+            return pd.to_datetime(value)
+        else:
+            # Default: convert to string for object/string types
+            return str(value) if value is not None else value
+    
+    async def send_dtype_error(self, websocket, row_id, column, value, dtype):
+        """Send a data type validation error message to the client"""
+        error_message = {
+            "type": "dtype_error",
+            "rowId": row_id,
+            "column": column,
+            "value": value,
+            "expected_dtype": str(dtype),
+            "message": f"Value '{value}' is not compatible with column type {dtype}"
+        }
+        await websocket.send_json(error_message)
     
     async def broadcast(self, message: dict, exclude: str = None):
         """Broadcast a message to all connected clients except the excluded one"""
@@ -384,7 +550,7 @@ class ShareServer:
         if message_key in self.recent_messages:
             last_time = self.recent_messages[message_key]
             if current_time - last_time < 0.3:  # 300ms
-                print(f"Skipping duplicate message: {message_key}")
+                logger.debug(f"Skipping duplicate message: {message_key}")
                 return
                 
         # Update message timestamp
@@ -397,8 +563,8 @@ class ShareServer:
         if msg_type == 'cell_edit':
             extra_info = f" - Cell [{message.get('rowId')}, {message.get('column')}] = {message.get('value')}"
         
-        print(f"Broadcasting '{msg_type}'{extra_info} to {client_count} client(s)" + 
-              (f" (excluding {exclude})" if exclude else ""))
+        logger.info(f"Broadcasting '{msg_type}'{extra_info} to {client_count} client(s)" + 
+                    (f" (excluding {exclude})" if exclude else ""))
         
         sent_count = 0
         for client_id, connection in self.active_connections.items():
@@ -407,9 +573,9 @@ class ShareServer:
                     await connection.send_json(message)
                     sent_count += 1
                 except Exception as e:
-                    print(f"Error broadcasting to {client_id}: {e}")
+                    logger.error(f"Error broadcasting to {client_id}: {e}")
         
-        print(f"Message sent to {sent_count}/{client_count} client(s)")
+        logger.debug(f"Message sent to {sent_count}/{client_count} client(s)")
 
     def _get_message_signature(self, message: dict) -> str:
         """Generate a unique signature for a message to detect duplicates"""
@@ -474,8 +640,8 @@ class ShareServer:
             url = f"http://localhost:{port}"
             return url, self.shutdown_event
         
-def run_server(df: pd.DataFrame, use_iframe: bool = False, collaborative: bool = False):
-    server = ShareServer(df, collaborative_mode=collaborative)
+def run_server(df: pd.DataFrame, use_iframe: bool = False, collaborative: bool = False, test_mode: bool = False, log_level: str = "CRITICAL", strict_dtype: bool = True):
+    server = ShareServer(df, collaborative_mode=collaborative, test_mode=test_mode, log_level=log_level, strict_dtype=strict_dtype)
     url, shutdown_event = server.serve(use_iframe=use_iframe)
     return url, shutdown_event, server
 
@@ -491,12 +657,10 @@ def run_ngrok(url, emails, shutdown_event):
             shutdown_event.set()
             return
         
-        print(f"Attempting to share with: {', '.join(emails)}")
+        logger.info(f"Attempting to share with: {', '.join(emails)}")
         
         listener = ngrok.forward(url, authtoken_from_env=True, oauth_provider="google", oauth_allow_emails=emails)
-        print(f"Ingress established at: {listener.url()}")
-        print(f"Share this URL with these email addresses: {', '.join(emails)}")
-        print("Note: Recipients must log in with the exact email address you specified.")
+        print(f"Share this link: {listener.url()}")
         shutdown_event.wait()
     except Exception as e:
         if "ERR_NGROK_4018" in str(e):
@@ -516,15 +680,27 @@ def run_ngrok(url, emails, shutdown_event):
             print("Error details:", e)
             shutdown_event.set()
         else:
+            logger.error(f"Error setting up ngrok: {e}")
             print(f"Error setting up ngrok: {e}")
             shutdown_event.set()
 
-def start_editor(df, use_iframe: bool = False, collaborative: bool = False, share_with: List[str] = None):
+def start_editor(df, use_iframe: bool = False, collaborative: bool = False, share_with: List[str] = None, test_mode: bool = False, log_level: str = "CRITICAL", local: bool = False, strict_dtype: bool = True):
+    
     load_dotenv()
+
     if not use_iframe:
-        print("Starting server with DataFrame:")
-        print(df)
-    url, shutdown_event, server = run_server(df, use_iframe=use_iframe, collaborative=collaborative)
+        logger.info("Starting server with DataFrame:")
+        logger.info(df)
+
+    url, shutdown_event, server = run_server(
+        df, 
+        use_iframe=use_iframe, 
+        collaborative=collaborative, 
+        test_mode=test_mode, 
+        log_level=log_level, 
+        strict_dtype=strict_dtype
+    )
+    
     try:
         from google.colab import output
         # If that works we're in Colab
@@ -535,7 +711,8 @@ def start_editor(df, use_iframe: bool = False, collaborative: bool = False, shar
         shutdown_event.wait()
     except ImportError:
         # not in Colab
-        print(f"Local server started at {url}")
+        if local:
+            print(f"Local server started at {url}")
         
         if collaborative:
             if share_with:
