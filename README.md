@@ -10,7 +10,10 @@
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
 <a href="https://github.com/RohanAdwankar/share-df">Demos and Source Code</a>
 </p>
-<video src="https://github.com/user-attachments/assets/fd8e9ea4-b0d5-4d61-abfc-cd584ba7af44" controls="controls" muted="muted" style="max-width:100%;"></video>
+
+
+https://github.com/user-attachments/assets/752e00c1-b7ce-488c-ae4e-1ae90a8e0fec
+
 
 ## Problem
 Data scientists use Pandas/Polars dataframes to work with their data, but nontechnical contributors need a GUI like Excel.
@@ -22,6 +25,8 @@ This is frustrating because:
 ## Goal      
 
 Developers generate a URL for free that they can then send to nontechnical contributors enabling them to modify the dataframe with a web app.
+
+<video src="https://github.com/user-attachments/assets/fd8e9ea4-b0d5-4d61-abfc-cd584ba7af44" controls="controls" muted="muted" style="max-width:100%;"></video>
 
 ## Technical Contributor Features
 - one function call to generate a link to send, accessible anywhere 
