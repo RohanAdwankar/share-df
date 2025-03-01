@@ -3,7 +3,7 @@ import pandas as pd
 import polars as pl
 import logging
 from share_df.server import ShareServer
-from share_df.testing import set_test_mode
+import os
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
@@ -19,11 +19,11 @@ logger = logging.getLogger("test_polars")
 
 @pytest.fixture(scope="function", autouse=True)
 def enable_test_mode():
-    # Enable test mode before each test
-    set_test_mode(True)
+    # Set test mode environment variable directly
+    os.environ['SHARE_DF_TEST_MODE'] = 'true'
     yield
-    # Disable test mode after each test
-    set_test_mode(False)
+    # Unset after test
+    os.environ.pop('SHARE_DF_TEST_MODE', None)
 
 @pytest.fixture(scope="module")
 def get_free_port():

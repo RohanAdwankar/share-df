@@ -8,7 +8,7 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
-logger = logging.getLogger('selenium-tests')
+logger = logging.getLogger('test_utils')
 
 def save_screenshot(driver, name):
     """Save a screenshot to the screenshots directory"""
@@ -40,26 +40,56 @@ def save_page_source(driver, name):
         logger.error(f"Failed to save page source: {e}")
 
 def debug_page_state(driver, test_name):
-    """Capture the current page state for debugging"""
-    logger.info(f"Debug info for test: {test_name}")
-    logger.info(f"Current URL: {driver.current_url}")
-    logger.info(f"Page title: {driver.title}")
-    
-    # Check if key elements exist
+    """Capture debugging information about the current page state"""
     try:
-        tabulator_present = driver.execute_script('return !!document.querySelector(".tabulator")')
-        logger.info(f"Tabulator present: {tabulator_present}")
+        # Create logs directory if it doesn't exist
+        log_dir = Path(__file__).parent / "logs"
+        log_dir.mkdir(exist_ok=True)
         
-        tableholder_present = driver.execute_script('return !!document.querySelector(".tabulator-tableHolder")')
-        logger.info(f"TableHolder present: {tableholder_present}")
+        # Generate a filename with timestamp
+        timestamp = time.strftime("%Y%m%d-%H%M%S")
+        filename = f"{test_name}-{timestamp}"
         
-        cells_count = driver.execute_script('return document.querySelectorAll(".tabulator-cell").length')
-        logger.info(f"Number of cells found: {cells_count}")
+        # Log basic page information
+        logger.info(f"Debug for {test_name}: Title = {driver.title}, URL = {driver.current_url}")
         
-        buttons_count = driver.execute_script('return document.querySelectorAll("button").length')
-        logger.info(f"Number of buttons found: {buttons_count}")
+        # Try to save page source
+        try:
+            with open(log_dir / f"{filename}.html", "w", encoding="utf-8") as f:
+                f.write(driver.page_source)
+            logger.info(f"Saved page source to {filename}.html")
+        except Exception as e:
+            logger.error(f"Failed to save page source: {e}")
+        
+        # Try to take a screenshot
+        try:
+            driver.save_screenshot(str(log_dir / f"{filename}.png"))
+            logger.info(f"Saved screenshot to {filename}.png")
+        except Exception as e:
+            logger.error(f"Failed to save screenshot: {e}")
+        
+        # Log JavaScript errors if any
+        try:
+            logs = driver.get_log('browser')
+            if logs:
+                logger.info("Browser logs:")
+                for log in logs:
+                    logger.info(f"  {log}")
+        except Exception as e:
+            logger.error(f"Failed to get browser logs: {e}")
+            
+        # Count elements on page
+        try:
+            elements = {
+                "tables": len(driver.find_elements(by="css selector", value=".tabulator")),
+                "cells": len(driver.find_elements(by="css selector", value=".tabulator-cell")),
+                "rows": len(driver.find_elements(by="css selector", value=".tabulator-row")),
+                "columns": len(driver.find_elements(by="css selector", value=".tabulator-col")),
+                "errors": len(driver.find_elements(by="css selector", value=".error-message"))
+            }
+            logger.info(f"Page elements: {elements}")
+        except Exception as e:
+            logger.error(f"Failed to count elements: {e}")
+            
     except Exception as e:
-        logger.error(f"Error checking elements: {e}")
-    
-    save_screenshot(driver, test_name)
-    save_page_source(driver, test_name)
+        logger.error(f"Error in debug_page_state: {e}")

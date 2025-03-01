@@ -17,7 +17,6 @@ import ngrok
 from dotenv import load_dotenv
 import json
 import uuid
-from .testing import is_test_mode
 
 logger = logging.getLogger("share_df")
 
@@ -38,7 +37,7 @@ class ShareServer:
         self.app = FastAPI()
         self.shutdown_event = threading.Event()
         self.collaborative_mode = collaborative_mode
-        self.test_mode = test_mode or is_test_mode()  # Set test mode based on param or global flag
+        self.test_mode = test_mode
         self.active_connections: Dict[str, WebSocket] = {}
         self.collaborators: Dict[str, CollaboratorInfo] = {}
         self.cell_editors: Dict[str, str] = {}  # Maps cell ID to user ID of current editor
@@ -659,14 +658,16 @@ def run_ngrok(url, emails, shutdown_event):
         
         logger.info(f"Attempting to share with: {', '.join(emails)}")
         
+        # Use ngrok without specifying an event loop - let it handle async internally
         listener = ngrok.forward(url, authtoken_from_env=True, oauth_provider="google", oauth_allow_emails=emails)
         print(f"Share this link: {listener.url()}")
         shutdown_event.wait()
+            
     except Exception as e:
         if "ERR_NGROK_4018" in str(e):
             print("\nNgrok authentication token not found! Here's what you need to do:\n")
             print("1. Sign up for a free ngrok account at https://dashboard.ngrok.com/signup")
-            print("2. Get your authtoken from https://dashboard.ngrok.com/get-started/your-authtoken")
+            print("2. Get your authtoken from https://dashboard.ngrok.com/get-started/your-authtoken") 
             print("3. Create a file named '.env' in your project directory")
             print("4. Add this line to your .env file (replace with your actual token):")
             print("   NGROK_AUTHTOKEN=your_token_here\n")
@@ -678,6 +679,13 @@ def run_ngrok(url, emails, shutdown_event):
             print("2. Make sure the emails you entered are exact and valid")
             print("3. Try without specifying emails or upgrade your ngrok account\n")
             print("Error details:", e)
+            shutdown_event.set()
+        elif "ERR_NGROK_324" in str(e):
+            print("\nNgrok tunnel limit reached! Free accounts are limited to 3 active tunnels.")
+            print("Options to fix this:")
+            print("1. Close other ngrok tunnels you may have running")
+            print("2. Upgrade to an ngrok paid plan")
+            print("3. Try again later when some tunnels have expired\n")
             shutdown_event.set()
         else:
             logger.error(f"Error setting up ngrok: {e}")

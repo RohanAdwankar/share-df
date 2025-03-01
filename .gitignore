@@ -166,3 +166,4 @@ run.sh
 /tests/page_source
 /tests/screenshots
 .DS_Store
+/tests/logs
