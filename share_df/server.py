@@ -659,34 +659,8 @@ def run_ngrok(url, emails, shutdown_event):
         
         logger.info(f"Attempting to share with: {', '.join(emails)}")
         
-        try:
-            import asyncio
-            
-            tunnel_future = ngrok.forward(url, authtoken_from_env=True, oauth_provider="google", oauth_allow_emails=emails)
-            
-            if isinstance(tunnel_future, asyncio.Task):
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    new_loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(new_loop)
-                    listener = new_loop.run_until_complete(tunnel_future)
-                else:
-                    listener = loop.run_until_complete(tunnel_future)
-                
-                public_url = listener.url()
-            else:
-                listener = tunnel_future
-                public_url = listener.url()
-            
-            print(f"Share this link: {public_url}")
-        except (AttributeError, asyncio.InvalidStateError):
-            # Fallback for older versions
-            listener = ngrok.connect(addr=url, authtoken_from_env=True, oauth_provider="google", oauth_allow_emails=emails)
-            if hasattr(listener, 'public_url'):
-                print(f"Share this link: {listener.public_url}")
-            else:
-                print(f"Share this link: {listener}")
-        
+        listener = ngrok.forward(url, authtoken_from_env=True, oauth_provider="google", oauth_allow_emails=emails)
+        print(f"Share this link: {listener.url()}")
         shutdown_event.wait()
     except Exception as e:
         if "ERR_NGROK_4018" in str(e):
