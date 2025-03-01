@@ -658,10 +658,45 @@ def run_ngrok(url, emails, shutdown_event):
         
         logger.info(f"Attempting to share with: {', '.join(emails)}")
         
-        # Use ngrok without specifying an event loop - let it handle async internally
-        listener = ngrok.forward(url, authtoken_from_env=True, oauth_provider="google", oauth_allow_emails=emails)
-        print(f"Share this link: {listener.url()}")
-        shutdown_event.wait()
+        # Check if we're in a Jupyter notebook
+        is_jupyter = False
+        try:
+            from IPython import get_ipython
+            if get_ipython() is not None:
+                is_jupyter = True
+        except ImportError:
+            pass
+        
+        if is_jupyter:
+            # Handle asyncio in Jupyter environment
+            import asyncio
+            
+            # Define the async function
+            async def start_ngrok():
+                listener = await ngrok.forward(
+                    url, 
+                    authtoken_from_env=True, 
+                    oauth_provider="google", 
+                    oauth_allow_emails=emails
+                )
+                print(f"Share this link: {listener.url()}")
+                return listener
+            
+            # Use nest_asyncio to handle nested event loops in Jupyter
+            try:
+                import nest_asyncio
+                nest_asyncio.apply()
+            except ImportError:
+                print("For best experience in Jupyter notebooks, install nest_asyncio: pip install nest_asyncio")
+                
+            # Run with asyncio
+            listener = asyncio.get_event_loop().run_until_complete(start_ngrok())
+            shutdown_event.wait()
+        else:
+            # Regular Python script - use normal approach
+            listener = ngrok.forward(url, authtoken_from_env=True, oauth_provider="google", oauth_allow_emails=emails)
+            print(f"Share this link: {listener.url()}")
+            shutdown_event.wait()
             
     except Exception as e:
         if "ERR_NGROK_4018" in str(e):
