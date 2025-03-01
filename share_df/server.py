@@ -622,11 +622,23 @@ class ShareServer:
             return None, self.shutdown_event
         except ImportError:
             # Not in Colab
+            
+            # Check if we're in a Jupyter environment
+            is_jupyter = False
+            try:
+                from IPython import get_ipython
+                if get_ipython() is not None:
+                    is_jupyter = True
+            except ImportError:
+                pass
+                
+            # Configure server - disable uvloop in Jupyter
             server_config = uvicorn.Config(
                 self.app,
                 host=host,
                 port=port,
-                log_level="critical"
+                log_level="critical",
+                loop="asyncio" if is_jupyter else "auto"  # Force standard asyncio loop in Jupyter
             )
             server = uvicorn.Server(server_config)
             
