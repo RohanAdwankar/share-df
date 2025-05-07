@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Share-DF Cloud Editor</title>
+    <link rel="stylesheet" href="/static/css/editor.css">
+    <style>
+        .cloud-indicator {
+            background-color: #4338ca;
+            color: white;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            margin-left: 8px;
+        }
+        
+        .encryption-notice {
+            background-color: #f0fdf4;
+            color: #166534;
+            border: 1px solid #bbf7d0;
+            border-radius: 4px;
+            padding: 4px 10px;
+            margin: 8px 0;
+            font-size: 13px;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="title">
+            <h1>DataFrame Editor <span class="cloud-indicator">☁️ Cloud</span></h1>
+            <div class="encryption-notice">
+                🔒 End-to-end encrypted - Your data is secure
+            </div>
+        </div>
+        <div class="actions">
+            {% if collaborative %}
+            <button id="saveAndContinueBtn" class="primary">Save & Continue</button>
+            {% endif %}
+            <button id="saveBtn" class="primary">Save & Close</button>
+            <button id="cancelBtn" class="secondary">Discard Changes</button>
+        </div>
+    </div>
+
+    <div id="collaborators" class="{% if not collaborative %}hidden{% endif %}">
+        <div class="collaborators-list"></div>
+    </div>
+
+    <div class="container">
+        <div id="loading" class="loading-overlay">
+            <div class="spinner"></div>
+            <div class="loading-text">Loading data...</div>
+        </div>
+        <div id="grid"></div>
+    </div>
+
+    <script>
+        // Cloud configuration from server
+        const isCloudMode = true;
+        const isClient = {{ is_client|tojson }};
+        const sessionId = "{{ session_id }}";
+        {% if is_client %}
+        const encryptionKey = "{{ encryption_key }}";
+        const dataUrl = "{{ data_url }}";
+        {% endif %}
+        const collaborative = {{ collaborative|tojson }};
+    </script>
+    
+    <script src="/static/js/editor.js"></script>
+    <script>
+        // Cloud-specific code
+        document.addEventListener('DOMContentLoaded', function() {
+            // Initialize the editor with cloud settings
+            if (isClient) {
+                // We're a client accessing cloud data
+                console.log("Initializing as cloud client");
+                
+                // Set up data fetching from the cloud
+                fetchDataFromCloud(dataUrl, encryptionKey);
+            }
+        });
+        
+        async function fetchDataFromCloud(dataUrl, encryptionKey) {
+            try {
+                const response = await fetch(`/data?sid=${sessionId}&ekey=${encryptionKey}&url=${encodeURIComponent(dataUrl)}`);
+                
+                if (!response.ok) {
+                    throw new Error("Failed to fetch data from cloud");
+                }
+                
+                const data = await response.json();
+                
+                // Initialize the grid with the fetched data
+                initializeGrid(data);
+                
+                // Hide the loading indicator
+                document.getElementById('loading').style.display = 'none';
+            } catch (error) {
+                console.error("Error fetching cloud data:", error);
+                document.getElementById('loading').innerHTML = 
+                    `<div class="error-message">Error loading data: ${error.message}</div>`;
+            }
+        }
+    </script>
+</body>
+</html>
