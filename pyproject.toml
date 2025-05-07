@@ -16,12 +16,11 @@ pandas = "^2.2.3"
 jinja2 = "^3.1.5"
 polars = "^1.21.0"
 pyarrow = "^19.0.0"
-
-[tool.poetry.extras]
-jupyter = ["nest_asyncio", "ipykernel"]
-
-[tool.poetry.group.dev.dependencies]
-httpx = "^0.27.2"
+boto3 = "^1.34.51"
+cryptography = "^42.0.5"
+requests = "^2.31.0"
+nest_asyncio = "^1.6.0"
+ipykernel = "^6.29.3"
 
 [tool.poetry.group.test.dependencies]
 pytest = "^8.3.3"
