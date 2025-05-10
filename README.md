@@ -43,6 +43,9 @@ Developers generate a URL for free that they can then send to nontechnical contr
 - Multiple collaborator support 
     * See which cells other collaborators are editing
     * Sync all changes other collaborators live
+- See version history, undo changes, restore versions.
+
+<video src="https://github.com/user-attachments/assets/0389b97f-f145-4327-8901-47aabfe00003" controls="controls" muted="muted" style="max-width:100%;"></video>
 
 ## How to Run
 1. ```pip install share-df```
