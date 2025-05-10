@@ -1,4 +1,3 @@
-// Update the function signature to accept testMode parameter
 function editorApp(isCollaborative, isTestMode = false) {
     return {
         // Add isTestMode to state variables
@@ -18,6 +17,15 @@ function editorApp(isCollaborative, isTestMode = false) {
         _messageCache: {},
         _lastActionId: null,
         
+        // Version history related state
+        isVersionHistorySidebarOpen: false,
+        expandedSnapshots: [],
+        versionSnapshots: [],
+        versionChanges: [],
+        snapshotContextMenu: { visible: false, x: 0, y: 0, snapshotId: null },
+        changeContextMenu: { visible: false, x: 0, y: 0, changeId: null },
+        versionHistoryInterval: null,
+        
         // Initialize the application
         async init() {
             this.userColor = this.getRandomColor();
@@ -26,6 +34,25 @@ function editorApp(isCollaborative, isTestMode = false) {
             
             if (this.isCollaborative) {
                 this.setupWebSocket();
+                
+                // Load initial version history data for collaborative mode
+                if (this.isVersionHistorySidebarOpen) {
+                    this.loadVersionHistory();
+                }
+                
+                // Set up cleanup on page unload for version history tracking
+                window.addEventListener('beforeunload', () => {
+                    // Create a final snapshot before leaving if in collaborative mode
+                    if (this.socket && this.isConnected) {
+                        // Use sendBeacon for reliable delivery during page unload
+                        navigator.sendBeacon('/create_snapshot', JSON.stringify({
+                            manual: false,
+                            user_id: this.userId,
+                            user_name: this.userName,
+                            event: 'page_unload'
+                        }));
+                    }
+                });
             }
             
             // Only show tooltip in non-test mode
@@ -173,6 +200,50 @@ function editorApp(isCollaborative, isTestMode = false) {
             } catch (e) {
                 console.error('Error saving data:', e);
                 this.showToast('Error saving data', 'error');
+            }
+        },
+        
+        // Save and continue editing (for collaborative mode)
+        async saveAndContinue() {
+            try {
+                if (!this.table) return;
+                const data = this.table.getData();
+                const response = await fetch('/save_and_continue', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({data}),
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`Failed to save: ${response.statusText}`);
+                }
+                
+                const result = await response.json();
+                
+                // Show success message
+                this.showToast('Changes saved successfully! You can continue editing.');
+                
+                // Broadcast to other users that data was saved
+                if (this.isConnected && this.socket) {
+                    this.socket.send(JSON.stringify({
+                        type: "data_sync",
+                        message: "Data has been saved by " + this.userName
+                    }));
+                }
+                
+                // Create a version snapshot if it doesn't exist yet
+                if (this.isCollaborative && this.isConnected && this.socket) {
+                    this.socket.send(JSON.stringify({
+                        type: "create_snapshot",
+                        message: "Manual save by " + this.userName
+                    }));
+                }
+                
+            } catch (e) {
+                console.error('Error saving data:', e);
+                this.showToast('Error saving data: ' + e.message, 'error');
             }
         },
         
@@ -842,6 +913,79 @@ function editorApp(isCollaborative, isTestMode = false) {
                     // Handle dtype validation error
                     this.handleDtypeError(message);
                     break;
+                    
+                case "version_change":
+                    // A new version change event happened
+                    if (message.change) {
+                        const isNewChange = !this.versionChanges.some(change => change.id === message.change.id);
+                        
+                        if (isNewChange) {
+                            // Add to our changes list
+                            this.versionChanges.push(message.change);
+                            
+                            // Only show toast if version history sidebar is open
+                            if (this.isVersionHistorySidebarOpen) {
+                                const userName = message.change.user_name || "Someone";
+                                const changeType = message.change.change_type || "unknown";
+                                this.showToast(`${userName} made a ${changeType} change`, 'info');
+                            }
+                        }
+                    }
+                    break;
+                    
+                case "version_snapshot":
+                    // A new version snapshot was created
+                    if (message.snapshot) {
+                        const isNewSnapshot = !this.versionSnapshots.some(snapshot => snapshot.id === message.snapshot.id);
+                        
+                        if (isNewSnapshot) {
+                            // Add to our snapshots list
+                            this.versionSnapshots.push(message.snapshot);
+                            
+                            // Sort snapshots by timestamp in descending order
+                            this.versionSnapshots.sort((a, b) => b.timestamp - a.timestamp);
+                            
+                            // Only show toast if version history sidebar is open
+                            if (this.isVersionHistorySidebarOpen) {
+                                this.showToast("New version snapshot created", 'info');
+                            }
+                        }
+                    }
+                    break;
+
+                case "version_restored":
+                    // Someone restored to a previous version
+                    if (message.userId !== this.userId) {
+                        // Show notification about who restored
+                        const userName = this.collaborators[message.userId]?.name || "Someone";
+                        this.showToast(`${userName} restored to a previous version`, 'info');
+                        
+                        // Reload data to get the restored version
+                        this.loadData().then(data => {
+                            if (data && data.length > 0) {
+                                this.table.setData(data);
+                                this.tableData = data;
+                            }
+                        });
+                    }
+                    break;
+
+                case "user_cancelled":
+                    // Another user has cancelled their changes
+                    if (message.userId !== this.userId) {
+                        const userName = message.userName || this.collaborators[message.userId]?.name || "A user";
+                        this.showToast(`${userName} has discarded their changes and left`, 'info');
+                        
+                        // Remove them from collaborators list
+                        if (this.collaborators[message.userId]) {
+                            delete this.collaborators[message.userId];
+                        }
+                        
+                        // Remove any cursors for this user
+                        document.querySelectorAll(`.user-cursor[data-user-id="${message.userId}"]`).forEach(el => el.remove());
+                        document.querySelectorAll(`.user-cursor-absolute[data-user-id="${message.userId}"]`).forEach(el => el.remove());
+                    }
+                    break;
             }
         },
         
@@ -863,6 +1007,18 @@ function editorApp(isCollaborative, isTestMode = false) {
                         
                         // Add visual error indication
                         element.style.backgroundColor = "rgba(239, 68, 68, 0.2)"; // Light red
+                        
+                        // Track error in version history if collaborative mode
+                        if (this.isCollaborative && this.isConnected && this.socket) {
+                            this.socket.send(JSON.stringify({
+                                type: "validation_error",
+                                rowId: rowId,
+                                column: column,
+                                value: value,
+                                expected_dtype: expected_dtype,
+                                error: errorMsg
+                            }));
+                        }
                         
                         // Reset after a delay
                         setTimeout(() => {
@@ -889,6 +1045,7 @@ function editorApp(isCollaborative, isTestMode = false) {
                 const row = cell.getRow().getPosition() - 1;
                 const column = cell.getColumn().getField();
                 const value = cell.getValue();
+                const oldValue = cell.getOldValue();
                 
                 // Save value locally
                 this.tableData = this.table.getData();
@@ -932,11 +1089,23 @@ function editorApp(isCollaborative, isTestMode = false) {
         sendCellEdit(row, column, value) {
             if (!this.isCollaborative || !this.isConnected) return;
             
+            // Get the old value before sending the edit for versioning purposes
+            let oldValue = "";
+            try {
+                const currentData = this.table.getData();
+                if (currentData && currentData[row]) {
+                    oldValue = currentData[row][column] || "";
+                }
+            } catch (e) {
+                console.error("Error getting old value:", e);
+            }
+            
             this.socket.send(JSON.stringify({
                 type: "cell_edit",
                 rowId: row,
                 column: column,
-                value: value
+                value: value,
+                oldValue: oldValue
             }));
         },
         
@@ -1225,13 +1394,17 @@ function editorApp(isCollaborative, isTestMode = false) {
                 // First save the data to ensure no changes are lost
                 const data = this.table.getData();
                 try {
+                    // Save data and create a final snapshot
                     await fetch('/save_and_continue', {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
                         },
-                        body: JSON.stringify({data}),
+                        body: JSON.stringify({data, create_snapshot: true}),
                     });
+                    
+                    // Clean up version history resources
+                    this.cleanupVersionHistory();
                     
                     // Count active collaborators (excluding self)
                     const activeCollaborators = Object.keys(this.collaborators).length;
@@ -1240,6 +1413,20 @@ function editorApp(isCollaborative, isTestMode = false) {
                     if (activeCollaborators === 0) {
                         // No other collaborators are present, shut down the server
                         if (!this.isTestMode && !confirm('You are the only user connected. Do you want to close the editor and save your changes?')) return;
+                        
+                        // Create a final "shutdown" snapshot before closing
+                        await fetch('/create_snapshot', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify({
+                                manual: true,
+                                user_id: this.userId,
+                                user_name: this.userName,
+                                event: 'shutdown'
+                            }),
+                        });
                         
                         const response = await fetch('/shutdown', { method: 'POST' });
                         if (response.ok) {
@@ -1310,6 +1497,37 @@ function editorApp(isCollaborative, isTestMode = false) {
         async cancelChanges() {
             if (!this.isTestMode && !confirm('Are you sure you want to discard all changes and close the editor?')) return;
             try {
+                // If in collaborative mode, track this cancellation in version history
+                if (this.isCollaborative && this.isConnected && this.socket) {
+                    // Create a snapshot noting the cancellation
+                    try {
+                        await fetch('/create_snapshot', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify({
+                                manual: true,
+                                user_id: this.userId,
+                                user_name: this.userName,
+                                event: 'cancel_changes'
+                            }),
+                        });
+                        
+                        // Notify other users
+                        this.socket.send(JSON.stringify({
+                            type: "user_cancelled",
+                            userId: this.userId,
+                            userName: this.userName
+                        }));
+                        
+                        // Clean up version history resources
+                        this.cleanupVersionHistory();
+                    } catch (e) {
+                        console.error("Error creating cancel snapshot:", e);
+                    }
+                }
+                
                 const response = await fetch('/cancel', { method: 'POST' });
                 if (response.ok) {
                     this.showToast('Discarding changes...', 'success');
@@ -1393,6 +1611,33 @@ function editorApp(isCollaborative, isTestMode = false) {
             if (this.isVersionHistorySidebarOpen && this.versionSnapshots.length === 0) {
                 // Load version history when opening the sidebar
                 this.loadVersionHistory();
+                
+                // Start auto-refresh when sidebar is open
+                this.startVersionHistoryAutoRefresh();
+            } else if (!this.isVersionHistorySidebarOpen) {
+                // Stop auto-refresh when sidebar is closed
+                this.stopVersionHistoryAutoRefresh();
+            }
+        },
+        
+        // Start auto-refresh for version history
+        startVersionHistoryAutoRefresh() {
+            // Clear any existing interval
+            this.stopVersionHistoryAutoRefresh();
+            
+            // Set up new interval - refresh every 10 seconds
+            this.versionHistoryInterval = setInterval(() => {
+                if (this.isVersionHistorySidebarOpen) {
+                    this.loadVersionHistory();
+                }
+            }, 10000);
+        },
+        
+        // Stop auto-refresh for version history
+        stopVersionHistoryAutoRefresh() {
+            if (this.versionHistoryInterval) {
+                clearInterval(this.versionHistoryInterval);
+                this.versionHistoryInterval = null;
             }
         },
         
@@ -1514,10 +1759,28 @@ function editorApp(isCollaborative, isTestMode = false) {
                     throw new Error(result.error);
                 }
                 
+                // Reload data after restore
+                await this.loadData().then(data => {
+                    if (data && data.length > 0) {
+                        this.table.setData(data);
+                        this.tableData = data;
+                    }
+                });
+                
                 this.showToast("Restored to previous version", "success");
                 
-                // Hide the sidebar
+                // Hide the sidebar and context menus
+                this.isVersionHistorySidebarOpen = false;
                 this.hideContextMenus();
+                
+                // Notify others in collaborative mode
+                if (this.isCollaborative && this.isConnected && this.socket) {
+                    this.socket.send(JSON.stringify({
+                        type: "version_restored",
+                        userId: this.userId,
+                        snapshotId: snapshotId
+                    }));
+                }
                 
             } catch (error) {
                 console.error("Error restoring version:", error);
@@ -1547,13 +1810,81 @@ function editorApp(isCollaborative, isTestMode = false) {
                     throw new Error(result.error);
                 }
                 
+                // Reload data after revert
+                await this.loadData().then(data => {
+                    if (data && data.length > 0) {
+                        this.table.setData(data);
+                        this.tableData = data;
+                    }
+                });
+                
                 this.showToast("Change reverted successfully", "success");
                 this.hideContextMenus();
+                
+                // Notify others in collaborative mode
+                if (this.isCollaborative && this.isConnected && this.socket) {
+                    this.socket.send(JSON.stringify({
+                        type: "version_restored",
+                        userId: this.userId,
+                        changeId: changeId
+                    }));
+                }
                 
             } catch (error) {
                 console.error("Error reverting change:", error);
                 this.showToast("Error reverting change: " + error.message, "error");
             }
+        },
+        
+        // Create a manual snapshot of the current data
+        async createManualSnapshot() {
+            if (!this.isCollaborative) return;
+            
+            try {
+                const response = await fetch('/create_snapshot', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        manual: true,
+                        user_id: this.userId,
+                        user_name: this.userName
+                    })
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`Failed to create snapshot: ${response.statusText}`);
+                }
+                
+                const result = await response.json();
+                if (result.error) {
+                    throw new Error(result.error);
+                }
+                
+                this.showToast("Version snapshot created successfully", "success");
+                
+                // Refresh version history if sidebar is open
+                if (this.isVersionHistorySidebarOpen) {
+                    this.loadVersionHistory();
+                }
+                
+            } catch (error) {
+                console.error("Error creating snapshot:", error);
+                this.showToast("Error creating snapshot: " + error.message, "error");
+            }
+        },
+        
+        // Clean up version history resources
+        cleanupVersionHistory() {
+            // Stop auto-refresh interval
+            this.stopVersionHistoryAutoRefresh();
+            
+            // Close any context menus
+            this.hideContextMenus();
+            
+            // Clear any expanded snapshots
+            this.expandedSnapshots = [];
         },
     };
 }
