@@ -18,14 +18,6 @@ function editorApp(isCollaborative, isTestMode = false) {
         _messageCache: {},
         _lastActionId: null,
         
-        // Version history state
-        versionSnapshots: [],
-        versionChanges: [],
-        isVersionHistorySidebarOpen: false,
-        expandedSnapshots: [],
-        snapshotContextMenu: { visible: false, x: 0, y: 0, snapshotId: null },
-        changeContextMenu: { visible: false, x: 0, y: 0, changeId: null },
-        
         // Initialize the application
         async init() {
             this.userColor = this.getRandomColor();
@@ -430,139 +422,454 @@ function editorApp(isCollaborative, isTestMode = false) {
         },
         
         // Handle incoming WebSocket messages
-        handleWebSocketMessage(data) {
-            // Skip duplicates by checking server message ID
-            const msgId = data.server_msg_id;
-            if (msgId && this._messageCache[msgId]) {
-                return;
-            }
+        handleWebSocketMessage(message) {
+            // Skip duplicates
+            if (this._deduplicateMessage(message)) return;
             
-            // Add to message cache for deduplication
-            if (msgId) {
-                this._messageCache[msgId] = true;
-                
-                // Clean up cache periodically to prevent memory leaks
-                setTimeout(() => {
-                    delete this._messageCache[msgId];
-                }, 5000);
-            }
+            // Protect against own actions
+            if (message.actionId && message.actionId === this._lastActionId) return;
             
-            // Process message based on type
-            switch (data.type) {
+            switch (message.type) {
                 case "init":
-                    // Initialize with server state
-                    this.userId = data.userId;
-                    this.isConnected = true;
+                    this.userId = message.userId;
                     
-                    // Set collaborator data
-                    if (data.collaborators && Array.isArray(data.collaborators)) {
-                        data.collaborators.forEach(collab => {
-                            this.collaborators[collab.id] = collab;
-                        });
+                    message.collaborators.forEach(user => {
+                        if (user.id !== this.userId) {
+                            this.collaborators[user.id] = user;
+                        }
+                    });
+                    
+                    // CRITICAL FIX: Always use server's current data if it exists
+                    if (message.currentData && Array.isArray(message.currentData) && message.currentData.length > 0) {
+                        console.log("Received current data from server with:", 
+                            message.currentData.length, "rows and columns:", 
+                            Object.keys(message.currentData[0] || {}).join(", "));
+                        
+                        // Always use the server's data which includes all columns and all rows
+                        this.tableData = message.currentData;
+                        
+                        // Update column count if needed
+                        if (message.addedColumns && Array.isArray(message.addedColumns)) {
+                            message.addedColumns.forEach(colName => {
+                                const columnNumber = parseInt(colName.replace('New Column ', ''));
+                                if (!isNaN(columnNumber) && columnNumber > this.columnCount) {
+                                    this.columnCount = columnNumber;
+                                }
+                            });
+                        }
+                        
+                        // If table is already initialized, completely rebuild it with the current data
+                        if (this.table) {
+                            console.log("Rebuilding table with current server data");
+                            
+                            // Capture current column settings
+                            const existingColumns = this.table.getColumns().map(col => ({
+                                field: col.getField(),
+                                title: col.getDefinition().title
+                            }));
+                            
+                            // Define all columns, including ones from current data
+                            let allColumns = Object.keys(this.tableData[0] || {}).map(key => {
+                                const existingCol = existingColumns.find(col => col.field === key);
+                                return {
+                                    title: existingCol?.title || key,
+                                    field: key,
+                                    editor: true,
+                                    sorter: "string",
+                                    headerClick: (e, column) => {
+                                        if (e.shiftKey) {
+                                            e.stopPropagation();
+                                            this.editColumnHeader(e, column);
+                                            return false;
+                                        }
+                                        return true;
+                                    },
+                                    cellMouseEnter: (e, cell) => {
+                                        if (this.isCollaborative && this.isConnected) {
+                                            const row = cell.getRow().getPosition() - 1;
+                                            const column = cell.getColumn().getField();
+                                            this.sendCursorPosition(row, column);
+                                        }
+                                    }
+                                };
+                            });
+                            
+                            // Completely rebuild table with all current data
+                            this.table.setColumns(allColumns);
+                            this.table.setData(this.tableData);
+                        }
                     }
-                    
-                    // Load version history if provided
-                    if (data.versionSnapshots && Array.isArray(data.versionSnapshots)) {
-                        this.versionSnapshots = data.versionSnapshots;
-                    }
-                    
-                    if (data.versionChanges && Array.isArray(data.versionChanges)) {
-                        this.versionChanges = data.versionChanges;
-                    }
-                    
-                    // Update UI with added columns and rows
-                    if (data.addedColumns) {
-                        // Handle columns
-                    }
-                    
-                    // Handle initial data if provided
-                    if (data.currentData && Array.isArray(data.currentData)) {
-                        this.updateTableData(data.currentData);
-                    }
-                    
-                    // Update the user info on the server
-                    this.socket.send(JSON.stringify({
-                        type: "update_user",
-                        name: this.userName,
-                        color: this.userColor
-                    }));
                     break;
                     
                 case "user_joined":
-                    // New user joined
-                    if (data.userId !== this.userId) {
-                        this.collaborators[data.userId] = {
-                            id: data.userId,
-                            name: data.name,
-                            color: this.getRandomColor(),
-                            cursor: { row: -1, col: -1 }
-                        };
+                    this.showToast(`${message.name || "A new user"} joined the session`, 'success');
+                    break;
+                    
+                case "user_update":
+                    if (message.user && message.user.id !== this.userId) {
+                        this.collaborators[message.user.id] = message.user;
                         
-                        this.showToast(`${data.name} joined`, 'info');
+                        // Show toast for first update from a user
+                        if (!document.querySelector(`.collaborator-badge[data-user-id="${message.user.id}"]`)) {
+                            this.showToast(`${message.user.name} joined the session`, 'success');
+                        }
                     }
                     break;
                     
                 case "user_left":
-                    // User disconnected
-                    if (data.userId !== this.userId) {
-                        if (this.collaborators[data.userId]) {
-                            this.showToast(`${this.collaborators[data.userId].name} left`, 'info');
-                            delete this.collaborators[data.userId];
+                    if (message.userId && this.collaborators[message.userId]) {
+                        const userName = this.collaborators[message.userId].name;
+                        delete this.collaborators[message.userId];
+                        
+                        // Remove any cursors for this user
+                        document.querySelectorAll(`.user-cursor[data-user-id="${message.userId}"]`).forEach(el => el.remove());
+                        document.querySelectorAll(`.user-cursor-absolute[data-user-id="${message.userId}"]`).forEach(el => el.remove());
+                        
+                        this.showToast(`${userName} left the session`, 'error');
+                    }
+                    break;
+                    
+                case "cell_focus":
+                    // Another user is focusing on a cell
+                    if (message.userId !== this.userId) {
+                        const cellId = message.cellId;
+                        const [rowId, colField] = cellId.split("-");
+                        
+                        try {
+                            // Get the row first
+                            const rows = this.table.getRows();
+                            if (rows && rowId < rows.length) {
+                                const row = rows[rowId];
+                                if (row) {
+                                    const cell = row.getCell(colField);
+                                    if (cell && cell.getElement()) {
+                                        const userName = this.collaborators[message.userId]?.name || "User";
+                                        const userColor = this.collaborators[message.userId]?.color || "#3b82f6";
+                                        
+                                        // Mark the cell as being edited
+                                        const element = cell.getElement();
+                                        element.classList.add("cell-being-edited");
+                                        element.style.boxShadow = `0 0 0 2px ${userColor} inset`;
+                                        
+                                        // Add editor name
+                                        const nameTag = document.createElement("div");
+                                        nameTag.className = "editor-name";
+                                        nameTag.textContent = userName;
+                                        nameTag.style.backgroundColor = userColor;
+                                        nameTag.style.color = "#ffffff";
+                                        element.appendChild(nameTag);
+                                    }
+                                }
+                            }
+                        } catch (e) {
+                            console.error("Error handling cell focus:", e);
+                        }
+                    }
+                    break;
+                    
+                case "cell_blur":
+                    // User stopped editing a cell
+                    if (message.userId !== this.userId) {
+                        const cellId = message.cellId;
+                        const [rowId, colField] = cellId.split("-");
+                        
+                        try {
+                            const rows = this.table.getRows();
+                            if (rows && rowId < rows.length) {
+                                const row = rows[rowId];
+                                if (row) {
+                                    const cell = row.getCell(colField);
+                                    if (cell && cell.getElement()) {
+                                        const element = cell.getElement();
+                                        element.classList.remove("cell-being-edited");
+                                        element.style.boxShadow = "";
+                                        
+                                        // Remove editor name
+                                        const nameTag = element.querySelector(".editor-name");
+                                        if (nameTag) nameTag.remove();
+                                    }
+                                }
+                            }
+                        } catch (e) {
+                            console.error("Error handling cell blur:", e);
                         }
                     }
                     break;
                     
                 case "cell_edit":
                     // Another user edited a cell
-                    if (data.userId !== this.userId) {
-                        const { rowId, column, value } = data;
+                    if (message.userId !== this.userId) {
+                        const rowId = message.rowId;
+                        const column = message.column;
+                        const value = message.value;
                         
-                        // Update the table cell
                         try {
-                            // Update the underlying data
-                            const rowData = this.table.getRow(rowId).getData();
-                            if (rowData) {
-                                rowData[column] = value;
-                                this.table.updateData([rowData]);
+                            // Ensure the column exists before attempting to edit its value
+                            if (this.table) {
+                                const existingColumns = this.table.getColumns().map(col => col.getField());
                                 
-                                // Highlight the cell briefly to show it was changed
-                                this.flashCellBackground(rowId, column);
+                                if (!existingColumns.includes(column)) {
+                                    // Add the missing column first
+                                    console.log(`Adding missing column ${column} before editing cell`);
+                                    
+                                    const columnNumber = parseInt(column.replace('New Column ', ''));
+                                    if (!isNaN(columnNumber) && columnNumber > this.columnCount) {
+                                        this.columnCount = columnNumber;
+                                    }
+                                    
+                                    this.table.addColumn({
+                                        title: column,
+                                        field: column,
+                                        editor: true,
+                                        sorter: "string",
+                                        headerClick: (e, column) => {
+                                            if (e.shiftKey) {
+                                                e.stopPropagation();
+                                                this.editColumnHeader(e, column);
+                                                return false;
+                                            }
+                                            return true;
+                                        },
+                                        cellMouseEnter: (e, cell) => {
+                                            if (this.isCollaborative && this.isConnected) {
+                                                const row = cell.getRow().getPosition() - 1;
+                                                const column = cell.getColumn().getField();
+                                                this.sendCursorPosition(row, column);
+                                            }
+                                        }
+                                    }, false);
+                                }
+                                
+                                // Get the current data
+                                const allData = this.table.getData();
+                                
+                                // Ensure the row exists
+                                if (rowId >= allData.length) {
+                                    console.log(`Row ${rowId} doesn't exist, adding empty rows`);
+                                    
+                                    // Add missing rows with empty values
+                                    const columns = this.table.getColumns();
+                                    const emptyRows = [];
+                                    
+                                    for (let i = allData.length; i <= rowId; i++) {
+                                        const newRow = {};
+                                        columns.forEach(col => {
+                                            newRow[col.getField()] = '';
+                                        });
+                                        emptyRows.push(newRow);
+                                    }
+                                    
+                                    // Add the rows
+                                    this.table.addData(emptyRows);
+                                    
+                                    // Refresh allData
+                                    const updatedData = this.table.getData();
+                                    
+                                    // Now set the value
+                                    if (rowId < updatedData.length) {
+                                        updatedData[rowId][column] = value;
+                                        
+                                        // Update the table with the full updated data
+                                        this.table.setData(updatedData);
+                                    }
+                                } else {
+                                    // Row exists, just update the cell
+                                    allData[rowId][column] = value;
+                                    this.table.updateData(allData);
+                                    
+                                    // Also attempt direct DOM update for visual feedback
+                                    const cellElements = document.querySelectorAll(`.tabulator-cell[tabulator-field="${column}"]`);
+                                    if (cellElements && cellElements.length > rowId) {
+                                        const cellElement = cellElements[rowId];
+                                        if (cellElement) {
+                                            cellElement.innerText = value;
+                                            cellElement.style.backgroundColor = "rgba(59, 130, 246, 0.3)";
+                                            setTimeout(() => {
+                                                cellElement.style.backgroundColor = "";
+                                            }, 1000);
+                                        }
+                                    }
+                                }
+                                
+                                // Update our local data model
+                                this.tableData = this.table.getData();
                             }
                         } catch (e) {
-                            console.error("Error applying cell edit:", e);
+                            console.error("Error updating cell:", e);
+                            // Last resort: reload the entire table
+                            this.loadData().then(data => {
+                                if (data && data.length > 0) {
+                                    this.table.setData(data);
+                                }
+                            });
                         }
                     }
                     break;
-                
-                // Handle version history related messages
-                case "version_change":
-                    // A new change was added to the version history
-                    if (data.change) {
-                        // Add the change to our local list
-                        this.versionChanges.push(data.change);
+                    
+                case "cursor_position":
+                    // A user moved their cursor to a specific cell
+                    if (message.userId !== this.userId && message.position) {
+                        this.highlightCellForUser(message.userId, message.position.row, message.position.column);
                     }
                     break;
                     
-                case "version_snapshot":
-                    // A new snapshot was created
-                    if (data.snapshot) {
-                        // Add the snapshot to our local list
-                        this.versionSnapshots.push(data.snapshot);
+                case "table_structure":
+                    // Table structure changed
+                    if (message.userId !== this.userId) {
+                        this.syncTableStructure(message.columns, message.rowCount);
+                    }
+                    break;
+                    
+                case "column_reorder":
+                    // Column order changed
+                    if (message.userId !== this.userId && message.columns) {
+                        this.reorderColumns(message.columns);
+                    }
+                    break;
+                    
+                case "add_column":
+                    // Another user added a column
+                    if (message.userId !== this.userId) {
+                        const columnName = message.columnName;
                         
-                        // Sort snapshots by timestamp in descending order
-                        this.versionSnapshots.sort((a, b) => b.timestamp - a.timestamp);
+                        try {
+                            console.log(`Adding new column '${columnName}' from user ${message.userId}`);
+                            
+                            // Check if column already exists to avoid duplicates
+                            const existingColumns = this.table.getColumns().map(col => col.getField());
+                            if (existingColumns.includes(columnName)) {
+                                console.log(`Column '${columnName}' already exists, skipping`);
+                                return;
+                            }
+                            
+                            // Add the column to our table
+                            this.table.addColumn({
+                                title: columnName,
+                                field: columnName,
+                                editor: true,
+                                sorter: "string", 
+                                headerClick: (e, column) => {
+                                    if (e.shiftKey) {
+                                        e.stopPropagation();
+                                        this.editColumnHeader(e, column);
+                                        return false;
+                                    }
+                                    return true;
+                                },
+                                cellMouseEnter: (e, cell) => {
+                                    if (this.isCollaborative && this.isConnected) {
+                                        const row = cell.getRow().getPosition() - 1;
+                                        const column = cell.getColumn().getField();
+                                        this.sendCursorPosition(row, column);
+                                    }
+                                }
+                            }, false);
+                            
+                            // Update our column count
+                            const columnCount = parseInt(columnName.replace('New Column ', ''));
+                            if (!isNaN(columnCount) && columnCount > this.columnCount) {
+                                this.columnCount = columnCount;
+                            }
+                            
+                            // Update our local data model
+                            this.tableData = this.table.getData();
+                            
+                            this.showToast(`${this.collaborators[message.userId]?.name || 'Someone'} added column: ${columnName}`);
+                        } catch (e) {
+                            console.error(`Failed to add column '${columnName}':`, e);
+                        }
                     }
                     break;
                     
-                case "version_restored":
-                    // The dataframe was restored to a previous version
-                    this.showToast(data.message || "Version restored", "success");
-                    
-                    // We need to refresh the table data
-                    this.loadData();
+                case "add_row":
+                    // Another user added a row
+                    if (message.userId !== this.userId) {
+                        try {
+                            // Create a new empty row with all existing columns
+                            const columns = this.table.getColumns();
+                            const newRow = {};
+                            columns.forEach(column => {
+                                newRow[column.getField()] = '';
+                            });
+                            
+                            console.log(`Adding new row from user ${message.userId}`);
+                            
+                            // Add the row with a better approach
+                            this.table.addRow(newRow);
+                            
+                            // Update our local data model
+                            this.tableData = this.table.getData();
+                            
+                            this.showToast(`${this.collaborators[message.userId]?.name || 'Someone'} added a new row`);
+                        } catch (e) {
+                            console.error("Failed to add row:", e);
+                        }
+                    }
                     break;
-                
-                // Other existing message handlers would continue below
+
+                case "data_sync":
+                    // Another user has saved their changes
+                    this.showToast(message.message || 'Data has been synchronized', 'success');
+                    
+                    // Optionally reload data to ensure consistency
+                    if (message.reload) {
+                        this.loadData().then(data => {
+                            if (data && data.length > 0) {
+                                this.table.setData(data);
+                            }
+                        });
+                    }
+                    break;
+
+                case "user_finished":
+                    // Another user has finished their session
+                    if (message.userId !== this.userId) {
+                        const userName = this.collaborators[message.userId]?.name || "A user";
+                        this.showToast(`${userName} has finished editing`, 'info');
+                        
+                        // Remove them from collaborators list
+                        if (this.collaborators[message.userId]) {
+                            delete this.collaborators[message.userId];
+                        }
+                        
+                        // Remove any cursors for this user
+                        document.querySelectorAll(`.user-cursor[data-user-id="${message.userId}"]`).forEach(el => el.remove());
+                        document.querySelectorAll(`.user-cursor-absolute[data-user-id="${message.userId}"]`).forEach(el => el.remove());
+                    }
+                    break;
+
+                case "dtype_error":
+                    // Handle dtype validation error
+                    this.handleDtypeError(message);
+                    break;
+            }
+        },
+        
+        // Handle dtype validation errors
+        handleDtypeError(message) {
+            const { rowId, column, value, expected_dtype, message: errorMsg } = message;
+            
+            // Show error toast
+            this.showToast(errorMsg, 'error');
+            
+            // Try to find and highlight the cell
+            const rows = this.table.getRows();
+            if (rows && rowId < rows.length) {
+                const row = rows[rowId];
+                if (row) {
+                    const cell = row.getCell(column);
+                    if (cell && cell.getElement()) {
+                        const element = cell.getElement();
+                        
+                        // Add visual error indication
+                        element.style.backgroundColor = "rgba(239, 68, 68, 0.2)"; // Light red
+                        
+                        // Reset after a delay
+                        setTimeout(() => {
+                            element.style.backgroundColor = "";
+                        }, 2000);
+                    }
+                }
             }
         },
         
@@ -1284,4 +1591,3 @@ function setupTooltip() {
         }
     }
 }
-
