@@ -11,9 +11,7 @@
 <a href="https://github.com/RohanAdwankar/share-df">Demos and Source Code</a>
 </p>
 
-
-https://github.com/user-attachments/assets/752e00c1-b7ce-488c-ae4e-1ae90a8e0fec
-
+<video src="https://github.com/user-attachments/assets/752e00c1-b7ce-488c-ae4e-1ae90a8e0fec" controls="controls" muted="muted" style="max-width:100%;"></video>
 
 ## Problem
 Data scientists use Pandas/Polars dataframes to work with their data, but nontechnical contributors need a GUI like Excel.
