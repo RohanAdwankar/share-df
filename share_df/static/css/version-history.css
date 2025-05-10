@@ -1,0 +1,242 @@
+/* Version history sidebar styles */
+.version-sidebar {
+    position: fixed;
+    top: 0;
+    right: 0;
+    width: 350px;
+    height: 100vh;
+    background-color: var(--surface);
+    border-left: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow: -5px 0 15px rgba(0, 0, 0, 0.2);
+    z-index: 100;
+    overflow-y: auto;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.sidebar-header {
+    padding: 16px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background-color: rgba(15, 17, 24, 0.9);
+    position: sticky;
+    top: 0;
+    z-index: 2;
+}
+
+.sidebar-header h2 {
+    font-size: 18px;
+    font-weight: 500;
+    margin: 0;
+}
+
+.close-button {
+    background: none;
+    border: none;
+    color: var(--text);
+    cursor: pointer;
+    padding: 5px;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.close-button:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+}
+
+.sidebar-content {
+    padding: 0;
+    overflow-y: auto;
+    flex: 1;
+}
+
+.no-versions {
+    padding: 20px;
+    text-align: center;
+    color: rgba(255, 255, 255, 0.6);
+    font-style: italic;
+}
+
+/* Version snapshot styles */
+.version-snapshot {
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.snapshot-header {
+    padding: 12px 16px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+    transition: background-color 0.2s;
+}
+
+.snapshot-header:hover {
+    background-color: rgba(255, 255, 255, 0.05);
+}
+
+.toggle-icon {
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    text-align: center;
+    font-size: 10px;
+    line-height: 16px;
+}
+
+.change-count {
+    color: rgba(255, 255, 255, 0.5);
+    margin-left: auto;
+    font-size: 12px;
+}
+
+.snapshot-actions {
+    margin-left: auto;
+}
+
+.restore-button {
+    background-color: rgba(59, 130, 246, 0.2);
+    color: var(--primary);
+    border: 1px solid var(--primary);
+    border-radius: 4px;
+    padding: 4px 8px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.restore-button:hover {
+    background-color: rgba(59, 130, 246, 0.3);
+}
+
+/* Individual change styles */
+.snapshot-changes {
+    padding: 0 8px 8px 32px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.version-change {
+    padding: 10px;
+    background-color: rgba(0, 0, 0, 0.2);
+    border-radius: 6px;
+    border-left: 3px solid var(--primary);
+    font-size: 13px;
+}
+
+.change-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 8px;
+}
+
+.user-indicator {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background-color: var(--primary);
+}
+
+.user-name {
+    font-weight: 500;
+}
+
+.change-time {
+    margin-left: auto;
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.5);
+}
+
+.change-details {
+    padding-left: 4px;
+}
+
+.change-description {
+    font-size: 12px;
+    margin-bottom: 4px;
+}
+
+.change-diff {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-family: monospace;
+    font-size: 12px;
+    background-color: rgba(0, 0, 0, 0.2);
+    padding: 4px 6px;
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.old-value {
+    color: rgba(255, 255, 255, 0.6);
+    text-decoration: line-through;
+    flex: 1;
+    text-overflow: ellipsis;
+    overflow: hidden;
+    white-space: nowrap;
+}
+
+.arrow {
+    color: rgba(255, 255, 255, 0.4);
+}
+
+.new-value {
+    color: var(--success);
+    flex: 1;
+    text-overflow: ellipsis;
+    overflow: hidden;
+    white-space: nowrap;
+}
+
+.change-actions {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 8px;
+}
+
+.revert-button {
+    background-color: rgba(239, 68, 68, 0.2);
+    color: var(--error);
+    border: 1px solid var(--error);
+    border-radius: 4px;
+    padding: 4px 8px;
+    font-size: 11px;
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.revert-button:hover {
+    background-color: rgba(239, 68, 68, 0.3);
+}
+
+/* Context menu */
+.context-menu {
+    position: fixed;
+    background-color: var(--surface);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 6px;
+    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+    z-index: 1000;
+    min-width: 180px;
+    padding: 4px 0;
+}
+
+.menu-item {
+    padding: 8px 12px;
+    cursor: pointer;
+    transition: background-color 0.2s;
+    font-size: 13px;
+}
+
+.menu-item:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+}

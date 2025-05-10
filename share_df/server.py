@@ -4,6 +4,11 @@ import uvicorn
 import pandas as pd
 import polars as pl
 import logging
+import json
+import uuid
+import asyncio
+import numpy as np
+from datetime import datetime
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
@@ -11,7 +16,7 @@ from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pathlib import Path
 from typing import Union, Dict, List
-from .models import DataUpdate, CollaboratorInfo
+from .models import DataUpdate, CollaboratorInfo, VersionChange, VersionSnapshot
 import os
 import ngrok
 from dotenv import load_dotenv
@@ -46,6 +51,14 @@ class ShareServer:
         self.added_columns = []
         self.added_rows_count = 0
         self.current_data = []
+        
+        # Version tracking - store changes grouped by 5min intervals
+        self.version_changes: List[VersionChange] = []
+        self.version_snapshots: List[VersionSnapshot] = []
+        self.version_history_enabled = collaborative_mode  # Only enable in collaborative mode
+        self.current_snapshot_id = None
+        self.snapshot_interval_seconds = 300  # 5 minute intervals
+        self.changes_made = False  # Track if any changes have been made
         
         if isinstance(df, pl.DataFrame):
             self.original_type = "polars"
@@ -220,6 +233,43 @@ class ShareServer:
             
             return {"status": "success", "message": "Data saved without shutting down"}
 
+        @self.app.get("/version_history")
+        async def get_version_history():
+            """Get the current version history"""
+            if not self.version_history_enabled:
+                return {"error": "Version history is not enabled"}
+            
+            return self.get_version_history()
+            
+        @self.app.post("/restore_version")
+        async def restore_version(request: Request):
+            """Restore to a specific version"""
+            if not self.version_history_enabled:
+                return JSONResponse(
+                    status_code=400,
+                    content={"error": "Version history is not enabled"}
+                )
+            
+            data = await request.json()
+            snapshot_id = data.get("snapshot_id")
+            change_id = data.get("change_id")
+            
+            if not snapshot_id and not change_id:
+                return JSONResponse(
+                    status_code=400,
+                    content={"error": "Either snapshot_id or change_id must be provided"}
+                )
+            
+            success = await self.restore_version(snapshot_id, change_id)
+            
+            if success:
+                return {"status": "success"}
+            else:
+                return JSONResponse(
+                    status_code=400,
+                    content={"error": "Failed to restore version"}
+                )
+
         @self.app.websocket("/ws")
         async def websocket_endpoint(websocket: WebSocket):
             await websocket.accept()
@@ -240,7 +290,9 @@ class ShareServer:
                     "collaborators": [collab.dict() for collab in self.collaborators.values()],
                     "addedColumns": self.added_columns,  # Send list of added columns to new users
                     "currentData": self.current_data,    # Send current data state
-                    "addedRows": self.added_rows_count   # Send info about added rows
+                    "addedRows": self.added_rows_count,  # Send info about added rows
+                    "versionSnapshots": [s.dict() for s in self.version_snapshots] if self.version_history_enabled else [],
+                    "versionChanges": [c.dict() for c in self.version_changes] if self.version_history_enabled else []
                 })
                 
                 # Notify other users about the new user
@@ -375,6 +427,16 @@ class ShareServer:
                             for row in self.current_data:
                                 if column_name not in row:
                                     row[column_name] = ""
+                                    
+                            # Track the change for version history
+                            if self.version_history_enabled:
+                                self.track_version_change(
+                                    user_id=user_id,
+                                    change_type="add_column",
+                                    details={
+                                        "column_name": column_name
+                                    }
+                                )
                         
                         # Broadcast to everyone
                         await self.broadcast({
@@ -402,6 +464,16 @@ class ShareServer:
                             # Also update current_data
                             new_row = {column: "" for column in self.df.columns}
                             self.current_data.append(new_row)
+                            
+                            # Track the change for version history
+                            if self.version_history_enabled:
+                                self.track_version_change(
+                                    user_id=user_id,
+                                    change_type="add_row",
+                                    details={
+                                        "row_id": row_id
+                                    }
+                                )
                         
                         # Broadcast to everyone
                         await self.broadcast({
@@ -457,6 +529,8 @@ class ShareServer:
         row_id = message.get("rowId")
         column = message.get("column")
         value = message.get("value")
+        user_id = message.get("userId")
+        old_value = message.get("oldValue", "")
         
         # Validate the data
         if row_id is None or column is None:
@@ -486,6 +560,19 @@ class ShareServer:
             
             # Forward message to all other clients
             await self.broadcast(message)
+            
+            # Track the change for version history
+            if user_id and self.version_history_enabled:
+                self.track_version_change(
+                    user_id=user_id,
+                    change_type="cell_edit",
+                    details={
+                        "row": row_id,
+                        "column": column,
+                        "old_value": old_value,
+                        "new_value": str(value)
+                    }
+                )
             
             # Mark that changes have been made
             self.changes_made = True
@@ -589,6 +676,232 @@ class ShareServer:
         
         # For other message types, use type + userId
         return f"{msg_type}:{message.get('userId', '')}"
+        
+    def track_version_change(self, user_id: str, change_type: str, details: dict):
+        """Track a change for version history"""
+        if not self.version_history_enabled:
+            return
+            
+        # Get user info
+        user_info = self.collaborators.get(user_id)
+        if not user_info:
+            # Default values if collaborator info not found
+            user_name = f"User {user_id[:6]}"
+            user_color = "#3b82f6"
+        else:
+            user_name = user_info.name
+            user_color = user_info.color
+            
+        # Create change record
+        change = VersionChange(
+            id=str(uuid.uuid4()),
+            timestamp=time.time(),
+            user_id=user_id,
+            user_name=user_name,
+            user_color=user_color,
+            change_type=change_type,
+            details=details
+        )
+        
+        # Add to changes list
+        self.version_changes.append(change)
+        
+        # Check if we need to create a new snapshot
+        self._check_snapshot_interval()
+        
+        # Broadcast version update to all clients
+        asyncio.create_task(self._broadcast_version_update(change))
+        
+    async def _broadcast_version_update(self, change):
+        """Broadcast version change to all clients"""
+        await self.broadcast({
+            "type": "version_change",
+            "change": change.dict()
+        })
+        
+    def _check_snapshot_interval(self):
+        """Check if we need to create a new snapshot based on time intervals"""
+        current_time = time.time()
+        
+        # Calculate the 5-minute interval this change falls into
+        interval_start = current_time - (current_time % self.snapshot_interval_seconds)
+        interval_end = interval_start + self.snapshot_interval_seconds
+        
+        # Check if we need to create a new snapshot
+        if not self.current_snapshot_id or len([s for s in self.version_snapshots if s.interval_start == interval_start]) == 0:
+            # Create a new snapshot for this interval
+            snapshot_id = str(uuid.uuid4())
+            self.current_snapshot_id = snapshot_id
+            
+            # Find changes in this interval
+            interval_changes = [c for c in self.version_changes 
+                               if interval_start <= c.timestamp < interval_end]
+            
+            # Create the snapshot
+            snapshot = VersionSnapshot(
+                id=snapshot_id,
+                timestamp=current_time,
+                changes=interval_changes,
+                interval_start=interval_start,
+                interval_end=interval_end
+            )
+            
+            # Add to snapshots list
+            self.version_snapshots.append(snapshot)
+            
+            # Broadcast snapshot to clients
+            asyncio.create_task(self._broadcast_snapshot_update(snapshot))
+    
+    async def _broadcast_snapshot_update(self, snapshot):
+        """Broadcast new snapshot to all clients"""
+        await self.broadcast({
+            "type": "version_snapshot",
+            "snapshot": {
+                "id": snapshot.id,
+                "timestamp": snapshot.timestamp,
+                "interval_start": snapshot.interval_start,
+                "interval_end": snapshot.interval_end,
+                "change_count": len(snapshot.changes)
+            }
+        })
+        
+    def get_version_history(self):
+        """Get the complete version history"""
+        return {
+            "snapshots": [s.dict() for s in self.version_snapshots],
+            "changes": [c.dict() for c in self.version_changes]
+        }
+        
+    async def restore_version(self, snapshot_id=None, change_id=None):
+        """Restore the dataframe to a specific version"""
+        # Implementation depends on how we store the actual data
+        # This would require storing actual dataframe snapshots or
+        # implementing undo/redo functionality
+        if snapshot_id:
+            # Find the snapshot
+            snapshot = next((s for s in self.version_snapshots if s.id == snapshot_id), None)
+            if not snapshot:
+                logger.error(f"Snapshot {snapshot_id} not found")
+                return False
+                
+            # Reset to original DataFrame
+            self.df = self.original_df.copy()
+            self.current_data = self.df.to_dict(orient='records')
+            
+            # Apply all changes up to this snapshot's last change
+            if snapshot.changes:
+                last_change_time = max(c.timestamp for c in snapshot.changes)
+                valid_changes = [c for c in self.version_changes if c.timestamp <= last_change_time]
+                
+                # Apply these changes in order
+                for change in valid_changes:
+                    self._apply_change(change)
+                    
+            # Broadcast the restore action
+            await self.broadcast({
+                "type": "version_restored",
+                "snapshot_id": snapshot_id,
+                "message": f"DataFrame restored to version from {datetime.fromtimestamp(snapshot.timestamp).strftime('%H:%M:%S')}"
+            })
+            return True
+        
+        elif change_id:
+            # Find the change
+            change = next((c for c in self.version_changes if c.id == change_id), None)
+            if not change:
+                logger.error(f"Change {change_id} not found")
+                return False
+            
+            # Handle undoing a specific change
+            if change.change_type == "cell_edit":
+                row_id = change.details.get("row")
+                column = change.details.get("column")
+                old_value = change.details.get("old_value")
+                
+                if row_id is not None and column is not None and old_value is not None:
+                    try:
+                        row_index = int(row_id)
+                        self.df.at[row_index, column] = old_value
+                        
+                        # Update current_data
+                        if 0 <= row_index < len(self.current_data):
+                            self.current_data[row_index][column] = old_value
+                            
+                        # Broadcast the change
+                        await self.broadcast({
+                            "type": "cell_edit",
+                            "rowId": row_id,
+                            "column": column,
+                            "value": old_value,
+                            "userId": "system",
+                            "fromRevert": True,
+                            "changeId": change_id
+                        })
+                        
+                        return True
+                    except Exception as e:
+                        logger.error(f"Error reverting cell edit: {e}")
+                        return False
+            
+            # Other change types would be handled here
+            return False
+            
+        return False
+    
+    def _apply_change(self, change):
+        """Apply a single change to the current dataframe"""
+        try:
+            if change.change_type == "cell_edit":
+                row_id = change.details.get("row")
+                column = change.details.get("column")
+                new_value = change.details.get("new_value")
+                
+                if row_id is not None and column is not None and new_value is not None:
+                    row_index = int(row_id)
+                    
+                    # Make sure the column exists
+                    if column not in self.df.columns:
+                        return False
+                        
+                    # Apply the edit
+                    self.df.at[row_index, column] = new_value
+                    
+                    # Update current_data
+                    if 0 <= row_index < len(self.current_data):
+                        self.current_data[row_index][column] = new_value
+                
+            elif change.change_type == "add_column":
+                column_name = change.details.get("column_name")
+                
+                if column_name and column_name not in self.df.columns:
+                    self.df[column_name] = ""
+                    
+                    # Update current_data
+                    for row in self.current_data:
+                        if column_name not in row:
+                            row[column_name] = ""
+                            
+                    # Add to our tracking list
+                    if column_name not in self.added_columns:
+                        self.added_columns.append(column_name)
+            
+            elif change.change_type == "add_row":
+                # Add a new empty row
+                if len(self.df) > 0:
+                    empty_row = pd.Series("", index=self.df.columns)
+                    self.df = pd.concat([self.df, pd.DataFrame([empty_row])], ignore_index=True)
+                    
+                    # Update current_data
+                    new_row = {column: "" for column in self.df.columns}
+                    self.current_data.append(new_row)
+                    
+                    # Update tracking
+                    self.added_rows_count += 1
+                    
+            return True
+        except Exception as e:
+            logger.error(f"Error applying change: {e}")
+            return False
 
     def get_final_dataframe(self):
         """Convert the DataFrame back to its original type before returning"""
