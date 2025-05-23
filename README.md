@@ -30,6 +30,7 @@ Developers generate a URL for free that they can then send to nontechnical contr
 - one function call to generate a link to send, accessible anywhere 
 - changes made by the client are received back as a dataframe for seamless development
 - compatale for both pandas and polars dataframes
+- local option for seeing/presenting dataframe visually in browser
   
 ## Nontechnical Contributor Features
 - Easy Google OAuth login 

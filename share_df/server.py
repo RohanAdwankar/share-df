@@ -1080,9 +1080,11 @@ def start_editor(df, use_iframe: bool = False, collaborative: bool = False, shar
     except ImportError:
         # not in Colab
         if local:
+            # Local mode - just provide localhost link and wait for shutdown
             print(f"Local server started at {url}")
-        
-        if collaborative:
+            print("Edit your DataFrame with the link above. Click Done to close the editor!") 
+            shutdown_event.wait()
+        elif collaborative:
             if share_with:
                 # In collaborative mode with emails to share with
                 print(f"Collaborative mode enabled!")

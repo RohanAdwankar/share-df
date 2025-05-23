@@ -18,7 +18,7 @@ def pandaBear(df: Union[pd.DataFrame, pl.DataFrame], use_iframe: bool = False, c
         collaborative (bool, optional): Whether to enable real-time collaboration features. Defaults to False.
         share_with (Union[str, list], optional): Email(s) to share the editor with (requires collaborative=True). Defaults to None.
         log_level (str, optional): Logging level. Defaults to "CRITICAL".
-        local (bool, optional): Whether to run in local mode without ngrok. Defaults to False.
+        local (bool, optional): Whether to run in local mode without ngrok tunneling. When True, skips email sharing and collaborative features, providing only a localhost URL for basic DataFrame visualization. Defaults to False.
         strict_dtype (bool, optional): Whether to enforce strict dtype checking. Defaults to True.
         
     Returns:
